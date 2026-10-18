@@ -89,17 +89,14 @@ struct StudentPolicyView: View {
                     .background(Palette.orange, in: Circle())
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Emergency fund").font(Typo.body(15, .bold))
-                    Text("$300 left this month").font(Typo.mono(13, .regular)).foregroundStyle(Palette.orangeInk)
+                    Text("If it's an emergency").font(Typo.body(15, .bold))
+                    Text("Say so, and it goes straight to Mom").font(Typo.body(13)).foregroundStyle(Palette.orangeInk)
                 }
             }
-            Text("For real emergencies only: medical, safety, getting home. It skips the limits above, is sent instantly, and Mom is told right away.")
+            Text("Tell the agent it's an emergency — medical, safety, getting home. It skips the queue and is checked twice, then Mom decides. It doesn't lift the limits above, and nothing is sent without her.")
                 .font(Typo.body(14))
                 .foregroundStyle(Palette.orangeInk)
                 .lineSpacing(2)
-            Button("Request emergency transfer") {}
-                .buttonStyle(PrimaryButtonStyle(fill: Palette.orange, foreground: Palette.orangeOnFill))
-                .fontWeight(.bold)
         }
         .foregroundStyle(Palette.orangeDeep)
         .padding(2)

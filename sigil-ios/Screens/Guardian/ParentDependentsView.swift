@@ -6,7 +6,7 @@ struct ParentDependentsView: View {
     var body: some View {
         Screen(spacing: 16) {
             HStack(alignment: .top) {
-                PageTitle(title: "Dependents", subtitle: "2 students funded from Visa •••• 4242")
+                PageTitle(title: "Dependents", subtitle: "2 dependents funded from your reservoir")
                 Spacer()
                 CircleIconButton(systemImage: "plus", label: "Add dependent", filled: true)
             }
@@ -86,11 +86,11 @@ private struct DependentCard: View {
             HStack(spacing: 8) {
                 stat("This month", dependent.month)
                 stat("Requests", dependent.requests)
-                stat("Emergency", dependent.emergency, highlighted: dependent.emergencyUsed)
+                stat("Needs you", dependent.awaiting, highlighted: dependent.awaitingHighlighted)
             }
 
             HStack(spacing: 10) {
-                Button("Send money") {}
+                Button("Top up") {}
                     .buttonStyle(SecondaryButtonStyle())
                 Button("Edit policy", action: onEditPolicy)
                     .buttonStyle(PrimaryButtonStyle())

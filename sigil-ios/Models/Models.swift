@@ -9,6 +9,10 @@ enum Role {
 final class AppSession {
     var role: Role?
 
+    /// The guardian's signed kill switch (SPEC §15 SEC-17). While frozen the engine
+    /// refuses every transfer, so the whole app reads this one flag.
+    var frozen = false
+
     func signIn(as role: Role) {
         withAnimation(.easeInOut(duration: 0.3)) { self.role = role }
     }
@@ -53,8 +57,8 @@ struct Dependent: Identifiable {
     let resetText: String
     let month: String
     let requests: String
-    let emergency: String
-    let emergencyUsed: Bool
+    let awaiting: String
+    let awaitingHighlighted: Bool
 }
 
 struct PolicySummary {
@@ -75,6 +79,11 @@ struct StudentRequest: Identifiable {
 }
 
 enum MockData {
+    /// Stand-ins for the ids a signed message carries (SPEC §8.4).
+    static let familyID = "8f2c…a91d"
+    static let nonce = "3c0b…77e4"
+    static let guardianWallet = "4Qm1…kT8v"
+
     static let dependents: [Dependent] = [
         Dependent(
             id: "mt", initials: "MT", name: "Min Thu",
@@ -82,7 +91,7 @@ enum MockData {
             avatarBackground: Palette.blueSoft, avatarForeground: Palette.blueInk,
             periodLabel: "This week", usedText: "$120 of $150", shortUsedText: "$120 / $150 used",
             fraction: 0.8, resetText: "Resets Mon 20 Oct",
-            month: "$460", requests: "11", emergency: "$0/300", emergencyUsed: false
+            month: "$460", requests: "11", awaiting: "1", awaitingHighlighted: true
         ),
         Dependent(
             id: "sm", initials: "SM", name: "Su Myat",
@@ -90,7 +99,7 @@ enum MockData {
             avatarBackground: Palette.orangeSoft, avatarForeground: Palette.orangeInk,
             periodLabel: "Today", usedText: "$9 of $15", shortUsedText: "$9 / $15 today",
             fraction: 0.6, resetText: "Resets at midnight",
-            month: "$180", requests: "19", emergency: "$85/300", emergencyUsed: true
+            month: "$180", requests: "19", awaiting: "0", awaitingHighlighted: false
         ),
     ]
 
@@ -117,7 +126,7 @@ enum MockData {
             ActivityItem(kind: .sent, title: "Lunch", who: "Su Myat", reason: "Auto-sent, daily allowance", amount: "$9.00", time: "1:20 pm"),
         ]),
         ActivityGroup(label: "Yesterday", items: [
-            ActivityItem(kind: .emergency, title: "Clinic visit", who: "Su Myat", reason: "Emergency rule, you were notified", amount: "$85.00", time: "6:05 pm"),
+            ActivityItem(kind: .emergency, title: "Clinic visit", who: "Su Myat", reason: "Emergency category · Auditor reviewed · you approved", amount: "$85.00", time: "6:05 pm"),
             ActivityItem(kind: .sent, title: "Bus pass", who: "Min Thu", reason: "Auto-sent, within limits", amount: "$30.00", time: "8:40 am"),
         ]),
         ActivityGroup(label: "Tue 14 Oct", items: [

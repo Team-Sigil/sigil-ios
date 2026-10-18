@@ -2,8 +2,9 @@ import SwiftUI
 
 struct ParentHomeView: View {
     @Binding var tab: GuardianTab
+    @Environment(AppSession.self) private var session
     @State private var decision: Decision?
-    @State private var agentPaused = false
+    @State private var confirmingFreeze = false
 
     private enum Decision { case approved, declined }
 
@@ -15,6 +16,7 @@ struct ParentHomeView: View {
             dependents
             recentActivity
         }
+        .sheet(isPresented: $confirmingFreeze) { freezeSheet }
     }
 
     // MARK: Header
@@ -50,24 +52,24 @@ struct ParentHomeView: View {
             HStack {
                 HStack(spacing: 10) {
                     Circle()
-                        .fill(agentPaused ? Palette.mutedOnDark : Palette.mint)
+                        .fill(session.frozen ? Palette.orange : Palette.mint)
                         .frame(width: 10, height: 10)
                         .background(
                             Circle()
-                                .fill((agentPaused ? Palette.mutedOnDark : Palette.mint).opacity(0.18))
+                                .fill((session.frozen ? Palette.orange : Palette.mint).opacity(0.18))
                                 .frame(width: 18, height: 18)
                         )
-                    Text(agentPaused ? "Agent paused" : "Agent active")
+                    Text(session.frozen ? "Frozen" : "Agent active")
                         .font(Typo.body(14, .semibold))
                 }
                 Spacer()
                 Button {
-                    withAnimation(.snappy) { agentPaused.toggle() }
+                    confirmingFreeze = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: agentPaused ? "play.fill" : "pause.fill")
+                        Image(systemName: session.frozen ? "play.fill" : "snowflake")
                             .font(.system(size: 11, weight: .bold))
-                        Text(agentPaused ? "Resume" : "Pause")
+                        Text(session.frozen ? "Unfreeze" : "Freeze")
                             .font(Typo.body(13, .semibold))
                     }
                     .padding(.horizontal, 14)
@@ -79,7 +81,7 @@ struct ParentHomeView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Sent this month")
+                Text(session.frozen ? "Frozen · sent this month" : "Sent this month")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.mutedOnDark)
                 Text("$640.00")
@@ -91,8 +93,8 @@ struct ParentHomeView: View {
             }
 
             HStack(spacing: 8) {
-                darkChip(icon: "creditcard", text: "Visa •••• 4242 via Stripe")
-                darkChip(icon: "checkmark.shield", text: "3 policies")
+                darkChip(icon: "drop.fill", text: "Reservoir $1,240 left")
+                darkChip(icon: "checkmark.shield", text: "2 active policies")
             }
         }
         .padding(20)
@@ -191,7 +193,7 @@ struct ParentHomeView: View {
                 .frame(width: 36, height: 36)
                 .background(Palette.ink, in: Circle())
             Text(decision == .approved
-                 ? "Approved. $180 is on its way to Min Thu via Stripe."
+                 ? "Approved and signed. $180 is on its way to Min Thu."
                  : "Declined. Min Thu has been told why.")
                 .font(Typo.body(14))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -229,8 +231,8 @@ struct ParentHomeView: View {
             ListCard {
                 ActivityRow(kind: .sent, title: "Lab supplies → Min Thu",
                             subtitle: "Auto-sent · within per-request limit · 12 min", amount: "$25.00")
-                ActivityRow(kind: .emergency, title: "Emergency · Clinic → Su Myat",
-                            subtitle: "Emergency rule · you were notified · Yesterday", amount: "$85.00")
+                ActivityRow(kind: .emergency, title: "Clinic visit · Su Myat",
+                            subtitle: "Emergency category · Auditor reviewed · you approved · Yesterday", amount: "$85.00")
                 ActivityRow(kind: .declined, title: "Concert tickets · Min Thu",
                             subtitle: "Declined · Nightlife & events is blocked · Tue", amount: "$90.00")
             }
@@ -264,6 +266,28 @@ private struct DependentMiniCard: View {
     }
 }
 
+// MARK: Freeze
+
+private extension ParentHomeView {
+    var freezeSheet: some View {
+        SignatureSheet(
+            title: session.frozen ? "Lift the freeze" : "Freeze all transfers",
+            summary: session.frozen
+                ? "The agent can start sending again, inside the limits you signed."
+                : "Nothing moves until you unfreeze, whatever the agent or the dependents ask for.",
+            message: [
+                "FinGuard:freeze",
+                "family:\(MockData.familyID)",
+                "frozen:\(session.frozen ? "false" : "true")",
+                "nonce:\(MockData.nonce)",
+            ],
+            confirmTitle: session.frozen ? "Sign and unfreeze" : "Sign and freeze"
+        ) {
+            withAnimation(.snappy) { session.frozen.toggle() }
+        }
+    }
+}
+
 #Preview {
-    ParentHomeView(tab: .constant(.home))
+    ParentHomeView(tab: .constant(.home)).environment(AppSession())
 }

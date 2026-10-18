@@ -11,7 +11,6 @@ struct StudentHomeView: View {
             header
             balanceCard
             askCard
-            emergencyLink
             policy
             recent
         }
@@ -154,29 +153,6 @@ struct StudentHomeView: View {
         draftFocused = false
     }
 
-    private var emergencyLink: some View {
-        Button {} label: {
-            HStack(spacing: 14) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Palette.orangeOnFill)
-                    .frame(width: 44, height: 44)
-                    .background(Palette.orange, in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Emergency transfer").font(Typo.body(16, .bold))
-                    Text("Up to $300 · sent instantly, Mom is notified")
-                        .font(Typo.body(13))
-                        .foregroundStyle(Palette.orangeInk)
-                }
-                Spacer()
-                Chevron(color: Palette.orangeDeep)
-            }
-            .foregroundStyle(Palette.orangeDeep)
-            .cardStyle(fill: Palette.orangeSoft, stroke: Palette.orangeBorder)
-        }
-        .buttonStyle(.plain)
-    }
-
     private var policy: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Your policy") {
@@ -185,7 +161,7 @@ struct StudentHomeView: View {
             ListCard {
                 InfoRow(title: "Weekly limit", value: "$150")
                 InfoRow(title: "Per request, auto-sent", value: "up to $60")
-                InfoRow(title: "Emergency fund", value: "$300 / month")
+                InfoRow(title: "Receipt needed over", value: "$50")
                 InfoRow(title: "Blocked", value: "Gambling · Alcohol · Nightlife", mono: false)
             }
             .onTapGesture { tab = .policy }

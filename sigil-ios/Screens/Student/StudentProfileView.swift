@@ -12,24 +12,29 @@ struct StudentProfileView: View {
             header
 
             LabeledSection(title: "Money arrives in") {
-                HStack(spacing: 12) {
-                    Image(systemName: "building.columns")
-                        .font(.system(size: 17, weight: .medium))
-                        .frame(width: 44, height: 44)
-                        .background(Palette.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.border, lineWidth: 1))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Bank account •••• 6789").font(Typo.body(15, .semibold))
-                        HStack(spacing: 6) {
-                            StatusDot(size: 7)
-                            Text("Verified · paid out by Stripe")
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "wallet.pass")
+                            .font(.system(size: 17, weight: .medium))
+                            .frame(width: 44, height: 44)
+                            .background(Palette.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.border, lineWidth: 1))
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("9Hq4…2mFe").font(Typo.mono(15, .semibold))
+                            HStack(spacing: 6) {
+                                StatusDot(size: 7)
+                                Text("Registered by Mom · devnet")
+                            }
+                            .font(Typo.body(12))
+                            .foregroundStyle(Palette.muted)
                         }
+                        Spacer()
+                    }
+                    Text("This is the only address your allowance can go to. Only Mom can change it, with her wallet.")
                         .font(Typo.body(12))
                         .foregroundStyle(Palette.muted)
-                    }
-                    Spacer()
-                    LinkButton(title: "Change")
+                        .lineSpacing(2)
                 }
                 .padding(.vertical, -2)
                 .cardStyle(padding: 14)
