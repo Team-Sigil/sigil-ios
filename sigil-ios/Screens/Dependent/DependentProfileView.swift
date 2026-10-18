@@ -1,7 +1,10 @@
 import SwiftUI
 
-struct StudentProfileView: View {
+struct DependentProfileView: View {
     @Environment(AppSession.self) private var session
+
+    private let me = MockData.dependents[0]
+    private var guardianName: String { MockData.guardian.shortName }
     @State private var notifyArrives = true
     @State private var notifyAnswers = true
     @State private var notifyResets = false
@@ -21,17 +24,17 @@ struct StudentProfileView: View {
                             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.border, lineWidth: 1))
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("9Hq4…2mFe").font(Typo.mono(15, .semibold))
+                            Text(me.tokenAccount).font(Typo.mono(15, .semibold))
                             HStack(spacing: 6) {
                                 StatusDot(size: 7)
-                                Text("Registered by Mom · devnet")
+                                Text("Registered by \(guardianName) · devnet")
                             }
                             .font(Typo.body(12))
                             .foregroundStyle(Palette.muted)
                         }
                         Spacer()
                     }
-                    Text("This is the only address your allowance can go to. Only Mom can change it, with her wallet.")
+                    Text("This is the only address your allowance can go to. Only \(guardianName) can change it, with her wallet.")
                         .font(Typo.body(12))
                         .foregroundStyle(Palette.muted)
                         .lineSpacing(2)
@@ -43,10 +46,10 @@ struct StudentProfileView: View {
             LabeledSection(title: "Guardian") {
                 Button {} label: {
                     HStack(spacing: 12) {
-                        Avatar(initials: "HN", background: Palette.ink, foreground: Palette.paper,
+                        Avatar(initials: MockData.guardian.initials, background: Palette.ink, foreground: Palette.paper,
                                fontSize: 14, weight: .semibold)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Mom (Hnin)").font(Typo.body(15, .semibold))
+                            Text("\(guardianName) (\(MockData.guardian.name))").font(Typo.body(15, .semibold))
                             Text("Funds your allowance · sets your policy")
                                 .font(Typo.body(12))
                                 .foregroundStyle(Palette.muted)
@@ -64,7 +67,7 @@ struct StudentProfileView: View {
             LabeledSection(title: "Notify me when") {
                 ListCard {
                     ToggleRow(title: "Money arrives", isOn: $notifyArrives)
-                    ToggleRow(title: "Mom answers a request", isOn: $notifyAnswers)
+                    ToggleRow(title: "\(guardianName) answers a request", isOn: $notifyAnswers)
                     ToggleRow(title: "My allowance resets", isOn: $notifyResets)
                 }
             }
@@ -72,7 +75,7 @@ struct StudentProfileView: View {
             LabeledSection(title: "Security & help") {
                 ListCard {
                     ToggleRow(title: "Sign in with Face ID", isOn: $faceID)
-                    ValueRow(title: "Change password")
+                    ValueRow(title: "Connected wallet", value: "Devnet", mono: true)
                     ValueRow(title: "Help centre")
                     ValueRow(title: "Terms & privacy")
                 }
@@ -84,14 +87,15 @@ struct StudentProfileView: View {
 
     private var header: some View {
         VStack(spacing: 10) {
-            Avatar(initials: "MT", size: 76, fontSize: 24)
+            Avatar(initials: me.initials, size: 76, background: me.avatarBackground,
+                   foreground: me.avatarForeground, fontSize: 24)
             VStack(spacing: 4) {
-                Text("Min Thu")
+                Text(me.name)
                     .font(Typo.display(28))
                     .tracking(-0.6)
                     .accessibilityAddTraits(.isHeader)
-                Text("minthu@example.com")
-                    .font(Typo.body(14))
+                Text(me.tokenAccount)
+                    .font(Typo.mono(14, .regular))
                     .foregroundStyle(Palette.muted)
             }
             Button {} label: {
@@ -112,5 +116,5 @@ struct StudentProfileView: View {
 }
 
 #Preview {
-    StudentProfileView().environment(AppSession())
+    DependentProfileView().environment(AppSession())
 }

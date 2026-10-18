@@ -1,19 +1,27 @@
 import SwiftUI
 
-struct StudentRequestsView: View {
-    @Binding var tab: StudentTab
+struct DependentRequestsView: View {
+    @Binding var tab: DependentTab
 
-    private enum Filter: Hashable { case all, pending, sent, declined }
+    private enum Filter: Hashable { case all, waiting, sent, stopped }
 
     @State private var filter: Filter = .all
 
-    private var history: [StudentRequest] {
-        MockData.studentHistory.filter { item in
+    private let me = MockData.dependents[0]
+    private var guardianName: String { MockData.guardian.shortName }
+    private var budget: Budget { MockData.budget(for: me.id) }
+
+    private var pending: ActivityItem? {
+        MockData.history(for: me.id).first { $0.status == .needsGuardian }
+    }
+
+    private var history: [ActivityItem] {
+        MockData.history(for: me.id).filter { item in
             switch filter {
             case .all: true
-            case .pending: false
-            case .sent: item.kind == .sent
-            case .declined: item.kind == .declined
+            case .waiting: item.status == .needsGuardian || item.status == .needsProof
+            case .sent: item.status == .sent || item.status == .partlySent
+            case .stopped: item.status == .declined || item.status == .blocked
             }
         }
     }
@@ -21,7 +29,7 @@ struct StudentRequestsView: View {
     var body: some View {
         Screen(spacing: 18) {
             HStack(alignment: .top) {
-                PageTitle(title: "Requests", subtitle: "$120 received this week")
+                PageTitle(title: "Requests", subtitle: "\(budget.spent.compact) received this week")
                 Spacer()
                 Button { tab = .home } label: {
                     HStack(spacing: 6) {
@@ -37,13 +45,12 @@ struct StudentRequestsView: View {
             }
 
             FilterChips(
-                options: [(.all, "All"), (.pending, "Pending"), (.sent, "Sent"), (.declined, "Declined")],
-                selection: $filter,
-                scrolls: false
+                options: [(.all, "All"), (.waiting, "Waiting"), (.sent, "Sent"), (.stopped, "Stopped")],
+                selection: $filter
             )
 
-            if filter == .all || filter == .pending {
-                pendingCard
+            if let pending, filter == .all || filter == .waiting {
+                pendingCard(pending)
             }
 
             if !history.isEmpty {
@@ -58,15 +65,15 @@ struct StudentRequestsView: View {
         }
     }
 
-    private var pendingCard: some View {
+    private func pendingCard(_ item: ActivityItem) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Textbooks").font(Typo.body(13)).foregroundStyle(Palette.muted)
-                    Text("$180.00").font(Typo.mono(30)).tracking(-0.9)
+                    Text(item.title).font(Typo.body(13)).foregroundStyle(Palette.muted)
+                    Text(item.amount.display).font(Typo.mono(30)).tracking(-0.9)
                 }
                 Spacer()
-                StatusBadge(kind: .pending)
+                StatusBadge(status: item.status, guardianName: guardianName)
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -77,11 +84,11 @@ struct StudentRequestsView: View {
                 }
                 TimelineStep(state: .done, lineColor: Palette.borderStrong) {
                     Text("Agent checked your policy").font(Typo.body(14, .semibold))
-                    Text("It’s over your $60 per-request limit, so it went to Mom.")
+                    Text(item.reasonCodes.first?.explanation ?? item.note)
                 }
                 TimelineStep(state: .current, lineColor: nil) {
-                    Text("Waiting for Mom").font(Typo.body(14, .semibold))
-                    Text("You’ll get a notification as soon as she decides.")
+                    Text("Waiting for \(guardianName)").font(Typo.body(14, .semibold))
+                    Text("It needs her wallet signature, so only she can decide it.")
                 }
             }
 
@@ -96,19 +103,21 @@ struct StudentRequestsView: View {
         .cardStyle(radius: 24)
     }
 
-    private func historyRow(_ item: StudentRequest) -> some View {
-        HStack(spacing: 12) {
+    private func historyRow(_ item: ActivityItem) -> some View {
+        let stopped = item.status == .declined || item.status == .blocked
+
+        return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title).font(Typo.body(14, .semibold))
-                Text(item.reason).font(Typo.body(12)).foregroundStyle(Palette.muted)
+                Text("\(item.note) · \(item.time)").font(Typo.body(12)).foregroundStyle(Palette.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             VStack(alignment: .trailing, spacing: 6) {
-                Text(item.amount)
+                Text(item.sentAmount?.display ?? item.amount.display)
                     .font(Typo.mono(14))
-                    .foregroundStyle(item.kind == .declined ? Palette.muted : Palette.ink)
-                    .strikethrough(item.kind == .declined)
-                StatusBadge(kind: item.kind, compact: true)
+                    .foregroundStyle(stopped ? Palette.muted : Palette.ink)
+                    .strikethrough(stopped)
+                StatusBadge(status: item.status, compact: true, guardianName: guardianName)
             }
         }
         .padding(.vertical, 14)
@@ -165,5 +174,5 @@ private struct TimelineStep<Content: View>: View {
 }
 
 #Preview {
-    StudentRequestsView(tab: .constant(.requests))
+    DependentRequestsView(tab: .constant(.requests))
 }

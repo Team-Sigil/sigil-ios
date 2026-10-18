@@ -1,12 +1,12 @@
 import SwiftUI
 
-struct ParentDependentsView: View {
+struct GuardianDependentsView: View {
     @Binding var tab: GuardianTab
 
     var body: some View {
         Screen(spacing: 16) {
             HStack(alignment: .top) {
-                PageTitle(title: "Dependents", subtitle: "2 dependents funded from your reservoir")
+                PageTitle(title: "Dependents", subtitle: "\(MockData.dependents.count) dependents funded from your reservoir")
                 Spacer()
                 CircleIconButton(systemImage: "plus", label: "Add dependent", filled: true)
             }
@@ -60,6 +60,9 @@ private struct DependentCard: View {
     let dependent: Dependent
     var onEditPolicy: () -> Void
 
+    private var budget: Budget { MockData.budget(for: dependent.id) }
+    private var policy: Policy { MockData.policy(for: dependent.id) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
@@ -67,26 +70,26 @@ private struct DependentCard: View {
                        background: dependent.avatarBackground, foreground: dependent.avatarForeground, fontSize: 17)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(dependent.name).font(Typo.display(19)).tracking(-0.2)
-                    Text(dependent.plan).font(Typo.body(13)).foregroundStyle(Palette.muted)
+                    Text(MockData.planText(for: dependent.id)).font(Typo.body(13)).foregroundStyle(Palette.muted)
                 }
                 Spacer()
-                DotBadge(text: "Agent on")
+                DotBadge(text: "v\(policy.version)")
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(dependent.periodLabel).font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
+                    Text("This week").font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
                     Spacer()
-                    Text(dependent.usedText).font(Typo.mono(13))
+                    Text("\(budget.spent.display) of \(budget.weeklyCap.compact)").font(Typo.mono(13))
                 }
-                ProgressBar(fraction: dependent.fraction)
-                Text(dependent.resetText).font(Typo.body(12)).foregroundStyle(Palette.muted)
+                ProgressBar(fraction: budget.fraction)
+                Text(budget.resetText).font(Typo.body(12)).foregroundStyle(Palette.muted)
             }
 
             HStack(spacing: 8) {
-                stat("This month", dependent.month)
-                stat("Requests", dependent.requests)
-                stat("Needs you", dependent.awaiting, highlighted: dependent.awaitingHighlighted)
+                stat("This month", dependent.sentThisMonth.compact)
+                stat("Requests", "\(dependent.requestsThisMonth)")
+                stat("Needs you", "\(dependent.awaitingGuardian)", highlighted: dependent.awaitingGuardian > 0)
             }
 
             HStack(spacing: 10) {
@@ -120,5 +123,5 @@ private struct DependentCard: View {
 }
 
 #Preview {
-    ParentDependentsView(tab: .constant(.dependents))
+    GuardianDependentsView(tab: .constant(.dependents))
 }

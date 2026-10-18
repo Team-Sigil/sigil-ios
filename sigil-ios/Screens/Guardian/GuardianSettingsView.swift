@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ParentSettingsView: View {
+struct GuardianSettingsView: View {
     @Environment(AppSession.self) private var session
     @State private var notifyEvery = false
     @State private var notifyHeld = true
@@ -13,11 +13,11 @@ struct ParentSettingsView: View {
 
             Button {} label: {
                 HStack(spacing: 14) {
-                    Avatar(initials: "HN", size: 56, background: Palette.ink, foreground: Palette.paper,
-                           fontSize: 18, weight: .semibold)
+                    Avatar(initials: MockData.guardian.initials, size: 56, background: Palette.ink,
+                           foreground: Palette.paper, fontSize: 18, weight: .semibold)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Hnin").font(Typo.display(19))
-                        Text("hnin@example.com · Guardian").font(Typo.body(13)).foregroundStyle(Palette.muted)
+                        Text(MockData.guardian.name).font(Typo.display(19))
+                        Text("\(MockData.guardian.wallet) · Guardian").font(Typo.mono(13, .regular)).foregroundStyle(Palette.muted)
                     }
                     Spacer()
                     Chevron()
@@ -40,8 +40,8 @@ struct ParentSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    ValueRow(title: MockData.guardianWallet, value: "Devnet", mono: true)
-                    ValueRow(title: "Delegated, still unspent", value: "$1,240", mono: true)
+                    ValueRow(title: MockData.guardian.wallet, value: "Devnet", mono: true)
+                    ValueRow(title: "Delegated, still unspent", value: MockData.reservoirRemaining.compact, mono: true)
                     Button {} label: {
                         HStack(spacing: 10) {
                             Image(systemName: "plus").font(.system(size: 15, weight: .bold))
@@ -146,5 +146,5 @@ struct SignOutButton: View {
 }
 
 #Preview {
-    ParentSettingsView().environment(AppSession())
+    GuardianSettingsView().environment(AppSession())
 }

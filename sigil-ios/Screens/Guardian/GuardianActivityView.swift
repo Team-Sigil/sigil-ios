@@ -1,24 +1,28 @@
 import SwiftUI
 
-struct ParentActivityView: View {
-    private enum Filter: Hashable { case all, sent, held, emergency, declined }
+struct GuardianActivityView: View {
+    private enum Filter: Hashable { case all, sent, needsGuardian, needsProof, stopped }
 
     @State private var filter: Filter = .all
 
     private var groups: [ActivityGroup] {
         MockData.activity.compactMap { group in
-            let items = group.items.filter { item in
-                switch filter {
-                case .all: true
-                case .sent: item.kind == .sent
-                case .held: item.kind == .held
-                case .emergency: item.kind == .emergency
-                case .declined: item.kind == .declined
-                }
-            }
+            let items = group.items.filter(matches)
             return items.isEmpty ? nil : ActivityGroup(label: group.label, items: items)
         }
     }
+
+    private func matches(_ item: ActivityItem) -> Bool {
+        switch filter {
+        case .all: true
+        case .sent: item.status == .sent || item.status == .partlySent
+        case .needsGuardian: item.status == .needsGuardian
+        case .needsProof: item.status == .needsProof
+        case .stopped: item.status == .declined || item.status == .blocked
+        }
+    }
+
+    private var allItems: [ActivityItem] { MockData.activity.flatMap(\.items) }
 
     var body: some View {
         Screen(spacing: 18) {
@@ -29,13 +33,14 @@ struct ParentActivityView: View {
             }
 
             HStack(spacing: 8) {
-                statTile("Sent in Oct", "$640", dark: true)
-                statTile("Held for you", "1")
-                statTile("Declined", "1")
+                statTile("Sent in Oct", MockData.sentThisMonth.compact, dark: true)
+                statTile("Needs you", "\(allItems.filter { $0.status == .needsGuardian }.count)")
+                statTile("Stopped", "\(allItems.filter { $0.status == .declined || $0.status == .blocked }.count)")
             }
 
             FilterChips(
-                options: [(.all, "All"), (.sent, "Sent"), (.held, "Held"), (.emergency, "Emergency"), (.declined, "Declined")],
+                options: [(.all, "All"), (.sent, "Sent"), (.needsGuardian, "Needs you"),
+                          (.needsProof, "Needs receipt"), (.stopped, "Declined & blocked")],
                 selection: $filter
             )
 
@@ -50,9 +55,7 @@ struct ParentActivityView: View {
                     LabeledSection(title: group.label) {
                         ListCard {
                             ForEach(group.items) { item in
-                                ActivityRow(kind: item.kind, title: item.title,
-                                            subtitle: "\(item.who) · \(item.reason)",
-                                            amount: item.amount, time: item.time)
+                                ActivityRow(item: item)
                             }
                         }
                     }
@@ -83,5 +86,5 @@ struct ParentActivityView: View {
 }
 
 #Preview {
-    ParentActivityView()
+    GuardianActivityView()
 }

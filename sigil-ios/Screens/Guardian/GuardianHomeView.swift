@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ParentHomeView: View {
+struct GuardianHomeView: View {
     @Binding var tab: GuardianTab
     @Environment(AppSession.self) private var session
     @State private var decision: Decision?
@@ -28,7 +28,7 @@ struct ParentHomeView: View {
                     .font(Typo.mono(12))
                     .tracking(0.7)
                     .foregroundStyle(Palette.muted)
-                Text("Good evening, Hnin")
+                Text("Good evening, \(MockData.guardian.name)")
                     .font(Typo.display(28))
                     .tracking(-0.6)
                     .accessibilityAddTraits(.isHeader)
@@ -38,7 +38,7 @@ struct ParentHomeView: View {
             Button {
                 tab = .settings
             } label: {
-                Avatar(initials: "HN", background: Palette.ink, foreground: Palette.paper, fontSize: 14, weight: .semibold)
+                Avatar(initials: MockData.guardian.initials, background: Palette.ink, foreground: Palette.paper, fontSize: 14, weight: .semibold)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Profile")
@@ -84,17 +84,17 @@ struct ParentHomeView: View {
                 Text(session.frozen ? "Frozen · sent this month" : "Sent this month")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.mutedOnDark)
-                Text("$640.00")
+                Text(MockData.sentThisMonth.display)
                     .font(Typo.mono(40))
                     .tracking(-1.2)
-                Text("14 transfers · all within policy")
+                Text("\(MockData.transfersThisMonth) transfers · all within policy")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.mutedOnDark)
             }
 
             HStack(spacing: 8) {
-                darkChip(icon: "drop.fill", text: "Reservoir $1,240 left")
-                darkChip(icon: "checkmark.shield", text: "2 active policies")
+                darkChip(icon: "drop.fill", text: "Reservoir \(MockData.reservoirRemaining.compact) left")
+                darkChip(icon: "checkmark.shield", text: "\(MockData.dependents.count) active policies")
             }
         }
         .padding(20)
@@ -135,7 +135,7 @@ struct ParentHomeView: View {
                     .tracking(-0.2)
                     .accessibilityAddTraits(.isHeader)
                 if decision == nil {
-                    Text("1")
+                    Text("\(MockData.questions.count)")
                         .font(Typo.mono(12, .semibold))
                         .frame(minWidth: 22, minHeight: 22)
                         .background(Palette.orange, in: Capsule())
@@ -153,20 +153,24 @@ struct ParentHomeView: View {
     }
 
     private var pendingCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let question = MockData.questions[0]
+        let dependent = MockData.dependent(question.dependentID)
+
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                Avatar(initials: "MT", fontSize: 14)
+                Avatar(initials: dependent.initials, background: dependent.avatarBackground,
+                       foreground: dependent.avatarForeground, fontSize: 14)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Min Thu · Textbooks").font(Typo.body(15, .semibold))
-                    Text("Requested 8 min ago").font(Typo.body(13)).foregroundStyle(Palette.muted)
+                    Text("\(dependent.name) · \(question.title)").font(Typo.body(15, .semibold))
+                    Text("Requested \(question.askedAgo)").font(Typo.body(13)).foregroundStyle(Palette.muted)
                 }
                 Spacer()
-                Text("$180.00").font(Typo.mono(20)).tracking(-0.4)
+                Text(question.amount.display).font(Typo.mono(20)).tracking(-0.4)
             }
 
             HStack(alignment: .top, spacing: 10) {
                 SigilMark(size: 24)
-                Text("\(Text("Agent:").bold().foregroundStyle(Palette.ink)) Above Min Thu’s $60 per-request limit, so I held it for you. A receipt from the campus bookstore is attached.")
+                Text("\(Text("Agent:").bold().foregroundStyle(Palette.ink)) \(question.agentReasoning)")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.textSecondary)
                     .lineSpacing(2)
@@ -175,10 +179,16 @@ struct ParentHomeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Palette.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
+            if let codes = question.reasonCodes.first {
+                Text(codes.explanation)
+                    .font(Typo.body(12))
+                    .foregroundStyle(Palette.muted)
+            }
+
             HStack(spacing: 10) {
                 Button("Decline") { withAnimation(.snappy) { decision = .declined } }
                     .buttonStyle(SecondaryButtonStyle())
-                Button("Approve $180") { withAnimation(.snappy) { decision = .approved } }
+                Button("Approve \(question.amount.compact)") { withAnimation(.snappy) { decision = .approved } }
                     .buttonStyle(PrimaryButtonStyle())
             }
         }
@@ -193,8 +203,8 @@ struct ParentHomeView: View {
                 .frame(width: 36, height: 36)
                 .background(Palette.ink, in: Circle())
             Text(decision == .approved
-                 ? "Approved and signed. $180 is on its way to Min Thu."
-                 : "Declined. Min Thu has been told why.")
+                 ? "Approved and signed. \(MockData.questions[0].amount.compact) is on its way to \(MockData.name(of: MockData.questions[0].dependentID))."
+                 : "Declined. \(MockData.name(of: MockData.questions[0].dependentID)) has been told why.")
                 .font(Typo.body(14))
                 .frame(maxWidth: .infinity, alignment: .leading)
             LinkButton(title: "Undo") { withAnimation(.snappy) { self.decision = nil } }
@@ -210,14 +220,19 @@ struct ParentHomeView: View {
             SectionHeader(title: "Dependents") {
                 LinkButton(title: "Add", systemImage: "plus") { tab = .dependents }
             }
-            HStack(spacing: 12) {
-                ForEach(MockData.dependents) { dependent in
-                    Button { tab = .dependents } label: {
-                        DependentMiniCard(dependent: dependent)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(MockData.dependents) { dependent in
+                        Button { tab = .dependents } label: {
+                            DependentMiniCard(dependent: dependent)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, 20)
             }
+            .scrollClipDisabled()
+            .padding(.horizontal, -20)
         }
     }
 
@@ -229,12 +244,9 @@ struct ParentHomeView: View {
                 LinkButton(title: "See all") { tab = .activity }
             }
             ListCard {
-                ActivityRow(kind: .sent, title: "Lab supplies → Min Thu",
-                            subtitle: "Auto-sent · within per-request limit · 12 min", amount: "$25.00")
-                ActivityRow(kind: .emergency, title: "Clinic visit · Su Myat",
-                            subtitle: "Emergency category · Auditor reviewed · you approved · Yesterday", amount: "$85.00")
-                ActivityRow(kind: .declined, title: "Concert tickets · Min Thu",
-                            subtitle: "Declined · Nightlife & events is blocked · Tue", amount: "$90.00")
+                ForEach(MockData.activity[0].items.prefix(3)) { item in
+                    ActivityRow(item: item)
+                }
             }
         }
     }
@@ -243,6 +255,8 @@ struct ParentHomeView: View {
 private struct DependentMiniCard: View {
     let dependent: Dependent
 
+    private var budget: Budget { MockData.budget(for: dependent.id) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
@@ -250,25 +264,27 @@ private struct DependentMiniCard: View {
                        background: dependent.avatarBackground, foreground: dependent.avatarForeground, fontSize: 13)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(dependent.name).font(Typo.body(15, .semibold))
-                    Text(dependent.shortPlan).font(Typo.body(12)).foregroundStyle(Palette.muted)
+                    Text(MockData.planText(for: dependent.id, short: true))
+                        .font(Typo.body(12)).foregroundStyle(Palette.muted)
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
-                ProgressBar(fraction: dependent.fraction, height: 6)
-                Text(dependent.shortUsedText)
+                ProgressBar(fraction: budget.fraction, height: 6)
+                Text("\(budget.spent.compact) / \(budget.weeklyCap.compact) used")
                     .font(Typo.mono(12, .regular))
                     .foregroundStyle(Palette.textSecondary)
             }
-            Text(dependent.resetText).font(Typo.body(12)).foregroundStyle(Palette.muted)
+            Text(budget.resetText).font(Typo.body(12)).foregroundStyle(Palette.muted)
         }
         .foregroundStyle(Palette.ink)
+        .frame(width: 210, alignment: .leading)
         .cardStyle()
     }
 }
 
 // MARK: Freeze
 
-private extension ParentHomeView {
+private extension GuardianHomeView {
     var freezeSheet: some View {
         SignatureSheet(
             title: session.frozen ? "Lift the freeze" : "Freeze all transfers",
@@ -289,5 +305,5 @@ private extension ParentHomeView {
 }
 
 #Preview {
-    ParentHomeView(tab: .constant(.home)).environment(AppSession())
+    GuardianHomeView(tab: .constant(.home)).environment(AppSession())
 }

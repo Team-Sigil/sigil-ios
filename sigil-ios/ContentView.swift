@@ -19,8 +19,8 @@ struct ContentView: View {
             case .guardian:
                 GuardianTabView()
                     .transition(.opacity)
-            case .student:
-                StudentTabView()
+            case .dependent:
+                DependentTabView()
                     .transition(.opacity)
             }
         }

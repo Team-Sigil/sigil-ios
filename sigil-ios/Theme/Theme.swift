@@ -48,6 +48,7 @@ enum Palette {
     static let green = Color(hex: 0x1F9D55)
     static let mint = Color(hex: 0x8FE3B0)
     static let danger = Color(hex: 0xB42318)
+    static let dangerSoft = Color(hex: 0xFBE6E3)
 }
 
 /// Type scale. The design uses Bricolage Grotesque (display), Geist (body) and
