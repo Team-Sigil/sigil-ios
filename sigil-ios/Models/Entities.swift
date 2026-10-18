@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum Role {
+enum Role: String {
     case guardian, dependent
 }
 
@@ -44,61 +44,64 @@ struct Dependent: Identifiable, Sendable {
     let awaitingGuardian: Int
 }
 
-/// A budget week: Monday 00:00 to Monday 00:00 in the family's timezone (SPEC §6.2).
+/// `GET /budget`. A budget week runs Monday to Monday in the family's timezone.
 struct Budget: Sendable {
     let spent: Units
-    /// Cleared but not yet confirmed on-chain, so it is already committed.
+    /// Cleared and reserved, but not yet confirmed on chain.
     let reserved: Units
     let weeklyCap: Units
-    /// What is left of the guardian's on-chain delegation, read from the chain.
-    let delegatedRemaining: Units
+    let remaining: Units
+    /// `null` when the crypto layer cannot be read — the app must show that it is
+    /// unknown rather than invent a number.
+    let delegatedRemaining: Units?
     let resetText: String
 
-    var remaining: Units { weeklyCap - spent - reserved }
     var fraction: Double { (spent + reserved).fraction(of: weeklyCap) }
 }
 
-/// One decision, as it appears in a history or activity list.
+/// One request as a list row. Built from the request plus its latest decision.
 struct ActivityItem: Identifiable, Sendable {
     let id = UUID()
-    let status: RequestStatus
+    let outcome: Outcome
     let title: String
     let dependentID: String
+    /// What was asked for.
     let amount: Units
-    /// Set when the agent sent less than was asked for.
-    let sentAmount: Units?
+    /// What actually moved, from `decision.amount_sent`.
+    let amountSent: Units
     let category: Category
-    /// The plain-language explanation shown to people.
-    let note: String
-    let reasonCodes: [ReasonCode]
-    let verdict: AuditorVerdict?
-    let time: String
+    /// `decision.reply_to_dependent` — the agent's own words.
+    let reply: String
+    /// `decision.summary_for_guardian`, which dependents must never see.
+    let summaryForGuardian: String?
+    let emergencyClaimed: Bool
     let txSignature: String?
+    let time: String
 
     init(
-        status: RequestStatus,
+        outcome: Outcome,
         title: String,
         dependentID: String,
         amount: Units,
-        sentAmount: Units? = nil,
+        amountSent: Units = .zero,
         category: Category,
-        note: String,
-        reasonCodes: [ReasonCode] = [],
-        verdict: AuditorVerdict? = nil,
+        reply: String,
+        summaryForGuardian: String? = nil,
+        emergencyClaimed: Bool = false,
         time: String,
         txSignature: String? = nil
     ) {
-        self.status = status
+        self.outcome = outcome
         self.title = title
         self.dependentID = dependentID
         self.amount = amount
-        self.sentAmount = sentAmount
+        self.amountSent = amountSent
         self.category = category
-        self.note = note
-        self.reasonCodes = reasonCodes
-        self.verdict = verdict
-        self.time = time
+        self.reply = reply
+        self.summaryForGuardian = summaryForGuardian
+        self.emergencyClaimed = emergencyClaimed
         self.txSignature = txSignature
+        self.time = time
     }
 }
 
@@ -108,22 +111,32 @@ struct ActivityGroup: Identifiable, Sendable {
     let items: [ActivityItem]
 }
 
-/// Something the agent has asked the guardian to settle. Answering it takes a
-/// wallet signature; a claim in chat never counts (SEC-05).
+/// `QuestionView`. Answering takes a wallet signature; a claim in chat never counts.
 struct GuardianQuestion: Identifiable, Sendable {
     let id: String
+    let requestID: String?
     let dependentID: String
     let title: String
+    let question: String
     let amount: Units
     let category: Category
-    let askedAgo: String
-    let requestText: String
-    let agentReasoning: String
     let recommendation: Recommendation
     let recommendedAmount: Units?
-    let verdict: AuditorVerdict?
-    let reasonCodes: [ReasonCode]
-    let hasProof: Bool
+    let urgency: Urgency
+    /// The maker's case.
+    let agentView: String
+    /// The checker's case. Absent when no review was required.
+    let auditorView: String?
+    let askedAgo: String
+    let emergencyClaimed: Bool
+    let proofs: [Proof]
+}
+
+struct Notification: Identifiable, Sendable {
+    let id: String
+    let message: String
+    let time: String
+    let isRead: Bool
 }
 
 struct WeeklySummary: Identifiable, Sendable {
@@ -135,7 +148,8 @@ struct WeeklySummary: Identifiable, Sendable {
     let flagged: Int
 }
 
-/// One link in the append-only, hash-chained log (SPEC §14, SEC-16).
+/// One link in the append-only, hash-chained log. The gateway re-verifies the whole
+/// chain on every read and returns `chain_valid` with it.
 struct AuditLogEntry: Identifiable, Sendable {
     let id: Int
     let event: String

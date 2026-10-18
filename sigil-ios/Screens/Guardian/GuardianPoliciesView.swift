@@ -4,7 +4,7 @@ struct GuardianPoliciesView: View {
     @State private var dependentID = MockData.dependents[0].id
 
     private var policy: Policy { MockData.policy(for: dependentID) }
-    private var limits: Limits { policy.limits }
+    private var body_: PolicyBody { policy.body }
 
     var body: some View {
         Screen(spacing: 22) {
@@ -19,21 +19,23 @@ struct GuardianPoliciesView: View {
 
             LabeledSection(title: "Allowance") {
                 ListCard {
-                    ValueRow(title: "Amount", value: policy.allowance.amount.compact, mono: true)
-                    ValueRow(title: "Cadence", value: policy.allowance.cadence.label)
-                    if policy.allowance.cadence == .weekly {
-                        ValueRow(title: "Sent on", value: policy.allowance.weekday.label)
+                    if let allowance = body_.allowance {
+                        ValueRow(title: "Amount", value: allowance.amount.compact, mono: true)
+                        ValueRow(title: "Sent every", value: allowance.weekday.label)
+                    } else {
+                        ValueRow(title: "Scheduled allowance", value: "None")
+                        ValueRow(title: "How money moves", value: "By request")
                     }
                 }
             }
 
             LabeledSection(title: "Outer limits") {
                 ListCard {
-                    ValueRow(title: "Weekly cap", value: limits.weeklyCap.compact, mono: true)
-                    ValueRow(title: "Most per request", value: limits.maxPerRequest.compact, mono: true)
-                    ValueRow(title: "Requests per day", value: "\(limits.maxRequestsPerDay)", mono: true)
-                    ValueRow(title: "Receipt needed over", value: limits.proofThreshold.compact, mono: true)
-                    ValueRow(title: "Auditor reviews over", value: limits.auditThreshold.compact, mono: true)
+                    ValueRow(title: "Weekly cap", value: body_.weeklyCap.compact, mono: true)
+                    ValueRow(title: "Most per request", value: body_.maxPerRequest.compact, mono: true)
+                    ValueRow(title: "Receipt needed over", value: body_.proofThreshold.compact, mono: true)
+                    ValueRow(title: "Auditor reviews over",
+                             value: reviewThresholdText, mono: true)
                 }
                 Text("These are enforced by code. The agent can be talked into anything, but it cannot move past this line.")
                     .font(Typo.body(13))
@@ -56,7 +58,7 @@ struct GuardianPoliciesView: View {
 
             LabeledSection(title: "Never send for") {
                 FlowLayout(spacing: 8) {
-                    ForEach(limits.blockedCategories) { category in
+                    ForEach(body_.blockedCategories) { category in
                         blockedChip(category.label)
                     }
                     Button {} label: {
@@ -86,7 +88,7 @@ struct GuardianPoliciesView: View {
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Your reservoir").font(Typo.body(15, .semibold))
-                        Text("\(MockData.reservoirRemaining.compact) left of what you delegated")
+                        Text(reservoirText)
                             .font(Typo.body(12)).foregroundStyle(Palette.muted)
                     }
                     Spacer()
@@ -122,29 +124,20 @@ struct GuardianPoliciesView: View {
     }
 
     /// Guidance is intent, not a rule: the agent reads it, code never enforces it,
-    /// and the dependent never sees it (SPEC §7, SEC-10).
+    /// and the dependent never sees it. The gateway stores it as one block of text.
     private var guidanceSection: some View {
         LabeledSection(title: "What you told the agent") {
-            VStack(spacing: 0) {
-                ForEach(Array(policy.guidance.enumerated()), id: \.offset) { index, line in
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "quote.opening")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Palette.chevron)
-                            .padding(.top, 3)
-                            .accessibilityHidden(true)
-                        Text(line)
-                            .font(Typo.body(14))
-                            .foregroundStyle(Palette.textSecondary)
-                            .lineSpacing(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(.vertical, 12)
-
-                    if index < policy.guidance.count - 1 {
-                        Divider().overlay(Palette.divider)
-                    }
-                }
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "quote.opening")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Palette.chevron)
+                    .padding(.top, 4)
+                    .accessibilityHidden(true)
+                Text(body_.guidance)
+                    .font(Typo.body(14))
+                    .foregroundStyle(Palette.textSecondary)
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .cardStyle(padding: 14)
 
@@ -154,6 +147,20 @@ struct GuardianPoliciesView: View {
                 .lineSpacing(2)
                 .padding(.horizontal, 4)
         }
+    }
+
+    /// The engine falls back to 25% of the weekly cap when the guardian set no
+    /// threshold, so the screen says which of the two is in force.
+    private var reviewThresholdText: String {
+        let value = body_.effectiveReviewThreshold.compact
+        return body_.usesDefaultReviewThreshold ? "\(value) (default)" : value
+    }
+
+    private var reservoirText: String {
+        guard let remaining = MockData.reservoirRemaining else {
+            return "The chain can't be read right now"
+        }
+        return "\(remaining.compact) left of what you delegated"
     }
 
     private var versionFooter: some View {

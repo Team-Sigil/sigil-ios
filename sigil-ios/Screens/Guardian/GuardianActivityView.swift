@@ -15,10 +15,10 @@ struct GuardianActivityView: View {
     private func matches(_ item: ActivityItem) -> Bool {
         switch filter {
         case .all: true
-        case .sent: item.status == .sent || item.status == .partlySent
-        case .needsGuardian: item.status == .needsGuardian
-        case .needsProof: item.status == .needsProof
-        case .stopped: item.status == .declined || item.status == .blocked
+        case .sent: item.outcome.isMoneyMoving
+        case .needsGuardian: item.outcome.needsGuardian
+        case .needsProof: item.outcome == .askedProof
+        case .stopped: item.outcome.isStopped
         }
     }
 
@@ -34,8 +34,8 @@ struct GuardianActivityView: View {
 
             HStack(spacing: 8) {
                 statTile("Sent in Oct", MockData.sentThisMonth.compact, dark: true)
-                statTile("Needs you", "\(allItems.filter { $0.status == .needsGuardian }.count)")
-                statTile("Stopped", "\(allItems.filter { $0.status == .declined || $0.status == .blocked }.count)")
+                statTile("Needs you", "\(allItems.filter { $0.outcome.needsGuardian }.count)")
+                statTile("Stopped", "\(allItems.filter(\.outcome.isStopped).count)")
             }
 
             FilterChips(
@@ -55,7 +55,7 @@ struct GuardianActivityView: View {
                     LabeledSection(title: group.label) {
                         ListCard {
                             ForEach(group.items) { item in
-                                ActivityRow(item: item)
+                                ActivityRow(item: item, showsGuardianSummary: true)
                             }
                         }
                     }

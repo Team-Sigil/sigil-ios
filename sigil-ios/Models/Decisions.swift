@@ -1,148 +1,199 @@
 import Foundation
 
-/// What the engine returned for a transfer (SPEC §9.2).
-enum Outcome: String, Sendable {
-    case cleared, blocked, needsGuardian, needsProof
-}
-
-/// SPEC §9.4. Every code carries the words to show a person, because the agent
-/// has to explain each outcome in plain language rather than quote the code.
-enum ReasonCode: String, CaseIterable, Sendable {
-    case frozen
-    case policyInactive
-    case policySignatureInvalid
-    case recipientNotRegistered
-    case duplicateRequest
-    case invalidAmount
-    case blockedCategory
-    case rateLimitDay
-    case overMaxPerRequest
-    case overWeeklyCap
-    case insufficientDelegation
-    case auditMissing
-    case auditFlagged
-    case auditorInvalidOutput
-    case proofRequired
-    case signerFailed
-    case signerRejected
-
-    /// The wire form, so a screen can show what the backend actually sent.
-    var code: String {
-        switch self {
-        case .frozen: "FROZEN"
-        case .policyInactive: "POLICY_INACTIVE"
-        case .policySignatureInvalid: "POLICY_SIGNATURE_INVALID"
-        case .recipientNotRegistered: "RECIPIENT_NOT_REGISTERED"
-        case .duplicateRequest: "DUPLICATE_REQUEST"
-        case .invalidAmount: "INVALID_AMOUNT"
-        case .blockedCategory: "BLOCKED_CATEGORY"
-        case .rateLimitDay: "RATE_LIMIT_DAY"
-        case .overMaxPerRequest: "OVER_MAX_PER_REQUEST"
-        case .overWeeklyCap: "OVER_WEEKLY_CAP"
-        case .insufficientDelegation: "INSUFFICIENT_DELEGATION"
-        case .auditMissing: "AUDIT_MISSING"
-        case .auditFlagged: "AUDIT_FLAGGED"
-        case .auditorInvalidOutput: "AUDITOR_INVALID_OUTPUT"
-        case .proofRequired: "PROOF_REQUIRED"
-        case .signerFailed: "SIGNER_FAILED"
-        case .signerRejected: "SIGNER_REJECTED"
-        }
-    }
-
-    var explanation: String {
-        switch self {
-        case .frozen: "Everything is frozen until your guardian lifts it."
-        case .policyInactive: "There's no signed policy in place yet."
-        case .policySignatureInvalid: "The policy couldn't be verified, so nothing can be sent."
-        case .recipientNotRegistered: "Your wallet hasn't been registered by your guardian."
-        case .duplicateRequest: "This is the same request again, so it was only counted once."
-        case .invalidAmount: "That amount isn't a valid one to send."
-        case .blockedCategory: "That category is blocked in your policy."
-        case .rateLimitDay: "You've used all your requests for today."
-        case .overMaxPerRequest: "It's over the most that can go out in one request."
-        case .overWeeklyCap: "It doesn't fit in what's left of this week."
-        case .insufficientDelegation: "The reservoir doesn't have enough left in it."
-        case .auditMissing: "The second check hasn't run yet."
-        case .auditFlagged: "The Auditor flagged it, so your guardian decides."
-        case .auditorInvalidOutput: "The second check couldn't be completed, so it was held."
-        case .proofRequired: "A receipt is needed before this one goes out."
-        case .signerFailed: "The transfer didn't go through on the network."
-        case .signerRejected: "The signer refused it, so nothing was sent."
-        }
-    }
-}
-
-/// What a request looks like to a person. Wider than `Outcome` because the agent
-/// can settle a request on its own — partially or by declining — without the
-/// engine ever seeing it (System Architecture, "Decision outcomes").
-enum RequestStatus: String, Hashable, Sendable {
-    /// Full amount cleared and signed.
-    case sent
-    /// The agent offered less than was asked for.
-    case partlySent
-    /// Waiting on a receipt before it can go further.
-    case needsProof
-    /// Waiting on the guardian's signed answer.
-    case needsGuardian
-    /// The agent said no. No transfer was ever attempted.
+/// The agent's move on a request (`DecisionView.outcome`).
+///
+/// This is the agent layer's list, not SPEC §9.2's four engine outcomes: the agent
+/// settles most requests itself, and only some of these ever reach the engine. The
+/// gateway says new outcomes may appear, so anything unrecognised becomes `.unknown`
+/// and is shown neutrally rather than dropped.
+enum Outcome: String, CaseIterable, Sendable {
+    case sentFull = "sent_full"
+    case sentPartial = "sent_partial"
+    case counterOffer = "counter_offer"
+    case askedProof = "asked_proof"
+    case askedGuardian = "asked_guardian"
+    case askedDependent = "asked_dependent"
     case declined
-    /// An outer limit stopped it: the engine or the signer refused.
+    case outOfScope = "out_of_scope"
+    // Set by code, never chosen by the model:
+    case auditorFlagged = "auditor_flagged"
     case blocked
+    case safeFallback = "safe_fallback"
+    case transferPending = "transfer_pending"
+    case unknown = "__unknown"
+
+    init(apiValue: String) {
+        self = Outcome(rawValue: apiValue) ?? .unknown
+    }
 
     var label: String {
         switch self {
-        case .sent: "Sent"
-        case .partlySent: "Part sent"
-        case .needsProof: "Needs receipt"
-        case .needsGuardian: "Needs guardian"
+        case .sentFull: "Sent"
+        case .sentPartial: "Part sent"
+        case .counterOffer: "Offered less"
+        case .askedProof: "Needs receipt"
+        case .askedGuardian: "Needs guardian"
+        case .askedDependent: "Agent asked back"
         case .declined: "Declined"
+        case .outOfScope: "Not about money"
+        case .auditorFlagged: "Auditor flagged"
         case .blocked: "Blocked"
+        case .safeFallback: "Held back"
+        case .transferPending: "On its way"
+        case .unknown: "Updated"
         }
     }
 
     /// Shorter wording for the dependent, who is talking to their own guardian.
     func label(guardianName: String) -> String {
-        self == .needsGuardian ? "With \(guardianName)" : label
+        switch self {
+        case .askedGuardian, .auditorFlagged: "With \(guardianName)"
+        default: label
+        }
+    }
+
+    /// `transfer_pending` means the money is already on its way: the gateway is
+    /// explicit that it must never be shown with a retry button.
+    var isMoneyMoving: Bool {
+        self == .sentFull || self == .sentPartial || self == .transferPending
+    }
+
+    var needsGuardian: Bool {
+        self == .askedGuardian || self == .auditorFlagged
+    }
+
+    var isStopped: Bool {
+        self == .declined || self == .blocked || self == .outOfScope || self == .safeFallback
     }
 }
 
-enum RiskSignal: String, Sendable {
-    case manipulation, purposeMismatch, pattern, proofMismatch, emergencyClaim, other
+/// What the agent did, as the app is given it (`DecisionView`).
+struct Decision: Sendable {
+    let outcome: Outcome
+    /// The agent's own words. The gateway says to show this to the dependent rather
+    /// than compose our own explanation.
+    let replyToDependent: String
+    /// The source of truth for money actually moved.
+    let amountSent: Units
+    let transferID: String?
+    /// Guardians only — never rendered on a dependent's screen.
+    let summaryForGuardian: String?
+
+    init(
+        outcome: Outcome,
+        replyToDependent: String,
+        amountSent: Units = .zero,
+        transferID: String? = nil,
+        summaryForGuardian: String? = nil
+    ) {
+        self.outcome = outcome
+        self.replyToDependent = replyToDependent
+        self.amountSent = amountSent
+        self.transferID = transferID
+        self.summaryForGuardian = summaryForGuardian
+    }
+}
+
+/// `TransferView.status`.
+enum TransferStatus: String, Sendable {
+    case blocked, pending, sent, failed
 
     var label: String {
         switch self {
-        case .manipulation: "Manipulation"
-        case .purposeMismatch: "Purpose mismatch"
-        case .pattern: "Unusual pattern"
-        case .proofMismatch: "Proof mismatch"
-        case .emergencyClaim: "Emergency claim"
-        case .other: "Other"
+        case .blocked: "Blocked"
+        case .pending: "On its way"
+        case .sent: "Sent"
+        case .failed: "Failed"
         }
     }
 }
 
-/// The checker's verdict (SPEC §8.3). It can only agree or flag — never approve,
-/// never raise an amount.
-struct AuditorVerdict: Sendable {
-    enum Verdict: String, Sendable {
-        case agree, flag
+enum TransferTrigger: String, Sendable {
+    case request, allowance
+}
 
-        var label: String {
-            switch self {
-            case .agree: "Auditor agreed"
-            case .flag: "Auditor flagged"
-            }
+/// One money event (`TransferView`).
+struct Transfer: Identifiable, Sendable {
+    let id: String
+    let requestID: String?
+    let trigger: TransferTrigger
+    let amount: Units
+    let category: Category
+    let purpose: String
+    let status: TransferStatus
+    /// Free text from the engine or signer when something stopped it.
+    let reason: String?
+    let txSignature: String?
+}
+
+/// Who said what in a request's thread (`ThreadEntry`).
+enum ThreadRole: String, Sendable {
+    case dependent, agent
+    case guardianAnswer = "guardian_answer"
+    case systemEvent = "system_event"
+}
+
+struct ThreadEntry: Identifiable, Sendable {
+    let id = UUID()
+    let role: ThreadRole
+    let text: String
+    let at: String
+}
+
+/// Integrity flags the gateway sets on a proof at upload. They only make the agent
+/// more careful — none of them blocks anything on their own.
+enum ProofFlag: String, CaseIterable, Sendable {
+    case duplicate
+    case nearDuplicate = "near_duplicate"
+    case noCameraMetadata = "no_camera_metadata"
+    case screenshot
+    case oldCapture = "old_capture"
+    case edited
+    case cameraSigned = "camera_signed"
+
+    init(apiValue: String) {
+        self = ProofFlag(rawValue: apiValue) ?? .edited
+    }
+
+    var label: String {
+        switch self {
+        case .duplicate: "Same file as an earlier receipt"
+        case .nearDuplicate: "Nearly the same picture as before"
+        case .noCameraMetadata: "No camera information"
+        case .screenshot: "Looks like a screenshot"
+        case .oldCapture: "Taken over 30 days ago"
+        case .edited: "Edited after it was taken"
+        case .cameraSigned: "Taken in the app"
         }
     }
 
-    let verdict: Verdict
-    let reason: String
-    let riskSignals: [RiskSignal]
+    /// Only a verified in-app capture is reassuring; the rest are cautions.
+    var isReassuring: Bool { self == .cameraSigned }
 }
 
-/// What the agent suggests the guardian do, attached to every question it asks.
+enum ProofKind: String, Sendable {
+    case receipt, quote, photo
+}
+
+struct Proof: Identifiable, Sendable {
+    let id: String
+    let kind: ProofKind
+    /// `"photo"` only for a verified in-app capture; a plain upload is `"file"`.
+    let source: String
+    let flags: [ProofFlag]
+    let capturedAt: String?
+    let uploadedAt: String
+
+    var isVerifiedCapture: Bool { source == "photo" }
+}
+
+/// What the agent suggests the guardian do (`QuestionView.recommendation`).
 enum Recommendation: String, Sendable {
     case approve, deny, partial
+
+    init(apiValue: String) {
+        self = Recommendation(rawValue: apiValue) ?? .deny
+    }
 
     var label: String {
         switch self {
@@ -150,5 +201,13 @@ enum Recommendation: String, Sendable {
         case .deny: "Agent recommends declining"
         case .partial: "Agent recommends a smaller amount"
         }
+    }
+}
+
+enum Urgency: String, Sendable {
+    case low, normal, high
+
+    init(apiValue: String) {
+        self = Urgency(rawValue: apiValue) ?? .normal
     }
 }

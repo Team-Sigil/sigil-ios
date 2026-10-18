@@ -1,105 +1,100 @@
 import SwiftUI
 
+/// How one outcome looks. Kept in one place so a new outcome from the gateway only
+/// has to be styled once.
+private struct OutcomeStyle {
+    let icon: String
+    let foreground: Color
+    let background: Color
+    var outlined = false
+}
+
+private func style(for outcome: Outcome) -> OutcomeStyle {
+    switch outcome {
+    case .sentFull:
+        OutcomeStyle(icon: "checkmark", foreground: Palette.paper, background: Palette.ink)
+    case .sentPartial, .counterOffer:
+        OutcomeStyle(icon: "arrow.down.right", foreground: Palette.blueInk, background: Palette.blueSoft)
+    case .transferPending:
+        OutcomeStyle(icon: "paperplane", foreground: Palette.blueInk, background: Palette.blueSoft)
+    case .askedProof:
+        OutcomeStyle(icon: "camera", foreground: Palette.orangeInk, background: Palette.orangeSoft)
+    case .askedGuardian:
+        OutcomeStyle(icon: "clock", foreground: Palette.ink, background: .clear, outlined: true)
+    case .auditorFlagged:
+        OutcomeStyle(icon: "flag", foreground: Palette.orangeInk, background: Palette.orangeSoft)
+    case .askedDependent:
+        OutcomeStyle(icon: "questionmark", foreground: Palette.ink, background: .clear, outlined: true)
+    case .declined, .outOfScope, .safeFallback, .unknown:
+        OutcomeStyle(icon: "xmark", foreground: Palette.segmentOff, background: Palette.graySoft)
+    case .blocked:
+        OutcomeStyle(icon: "hand.raised", foreground: Palette.danger, background: Palette.dangerSoft)
+    }
+}
+
 struct DecisionIcon: View {
-    let status: RequestStatus
+    let outcome: Outcome
 
     var body: some View {
-        switch status {
-        case .sent:
-            symbol("checkmark", weight: .bold)
-                .foregroundStyle(Palette.paper)
-                .background(Palette.ink, in: Circle())
-        case .partlySent:
-            symbol("arrow.down.right", weight: .bold)
-                .foregroundStyle(Palette.blueInk)
-                .background(Palette.blueSoft, in: Circle())
-        case .needsProof:
-            symbol("camera", weight: .semibold)
-                .foregroundStyle(Palette.orangeInk)
-                .background(Palette.orangeSoft, in: Circle())
-        case .needsGuardian:
-            symbol("clock", weight: .semibold)
-                .foregroundStyle(Palette.ink)
-                .background(Circle().strokeBorder(Palette.borderStrong, lineWidth: 1))
-        case .declined:
-            symbol("xmark", weight: .bold)
-                .foregroundStyle(Palette.segmentOff)
-                .background(Palette.graySoft, in: Circle())
-        case .blocked:
-            symbol("hand.raised", weight: .semibold)
-                .foregroundStyle(Palette.danger)
-                .background(Palette.dangerSoft, in: Circle())
-        }
-    }
-
-    private func symbol(_ name: String, weight: Font.Weight) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 13, weight: weight))
+        let style = style(for: outcome)
+        Image(systemName: style.icon)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(style.foreground)
             .frame(width: 32, height: 32)
+            .background(style.background, in: Circle())
+            .overlay {
+                if style.outlined {
+                    Circle().strokeBorder(Palette.borderStrong, lineWidth: 1)
+                }
+            }
             .accessibilityHidden(true)
     }
 }
 
 struct StatusBadge: View {
-    let status: RequestStatus
+    let outcome: Outcome
     var compact = false
     /// Set on dependent-facing screens so "Needs guardian" reads "With Mom".
     var guardianName: String?
 
     var body: some View {
+        let style = style(for: outcome)
+
         HStack(spacing: 5) {
-            Image(systemName: icon)
+            Image(systemName: style.icon)
                 .font(.system(size: compact ? 9 : 10, weight: .bold))
-            Text(guardianName.map(label(guardianName:)) ?? status.label)
+            Text(guardianName.map(outcome.label(guardianName:)) ?? outcome.label)
                 .font(Typo.body(compact ? 11 : 12, .semibold))
         }
-        .foregroundStyle(foreground)
+        .foregroundStyle(style.foreground)
         .padding(.horizontal, compact ? 8 : 10)
         .frame(height: compact ? 24 : 28)
-        .background(background, in: Capsule())
+        .background(style.background, in: Capsule())
         .overlay {
-            if status == .needsGuardian {
+            if style.outlined {
                 Capsule().strokeBorder(Palette.borderStrong, lineWidth: 1)
             }
         }
-        .accessibilityLabel(status.label)
+        .accessibilityLabel(outcome.label)
     }
+}
 
-    private func label(guardianName: String) -> String {
-        status.label(guardianName: guardianName)
-    }
+/// Small flag chip on a receipt. Only a verified in-app capture reads as reassuring;
+/// every other flag is a caution for the person reading it.
+struct ProofFlagChip: View {
+    let flag: ProofFlag
 
-    private var icon: String {
-        switch status {
-        case .sent: "checkmark"
-        case .partlySent: "arrow.down.right"
-        case .needsProof: "camera"
-        case .needsGuardian: "clock"
-        case .declined: "xmark"
-        case .blocked: "hand.raised"
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: flag.isReassuring ? "checkmark.seal.fill" : "exclamationmark.triangle")
+                .font(.system(size: 10, weight: .semibold))
+            Text(flag.label)
+                .font(Typo.body(12, .medium))
         }
-    }
-
-    private var foreground: Color {
-        switch status {
-        case .sent: Palette.paper
-        case .partlySent: Palette.blueInk
-        case .needsProof: Palette.orangeInk
-        case .needsGuardian: Palette.ink
-        case .declined: Palette.segmentOff
-        case .blocked: Palette.danger
-        }
-    }
-
-    private var background: Color {
-        switch status {
-        case .sent: Palette.ink
-        case .partlySent: Palette.blueSoft
-        case .needsProof: Palette.orangeSoft
-        case .needsGuardian: .clear
-        case .declined: Palette.graySoft
-        case .blocked: Palette.dangerSoft
-        }
+        .foregroundStyle(flag.isReassuring ? Palette.green : Palette.orangeInk)
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(flag.isReassuring ? Palette.mint.opacity(0.25) : Palette.orangeSoft, in: Capsule())
     }
 }
 
@@ -107,32 +102,39 @@ struct ActivityRow: View {
     let item: ActivityItem
     /// Shown on the guardian's screens, where several dependents are mixed together.
     var showsDependent = true
+    /// Guardians read the agent's summary for them; dependents read their own reply.
+    var showsGuardianSummary = false
+    var guardianName: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            DecisionIcon(status: item.status)
+            DecisionIcon(outcome: item.outcome)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(Typo.body(14, .semibold))
-                Text(item.note)
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(Typo.body(14, .semibold))
+                    if item.emergencyClaimed {
+                        Text("Emergency")
+                            .font(Typo.body(10, .bold))
+                            .foregroundStyle(Palette.orangeInk)
+                            .padding(.horizontal, 7)
+                            .frame(height: 20)
+                            .background(Palette.orangeSoft, in: Capsule())
+                    }
+                }
+                Text(text)
                     .font(Typo.body(12))
                     .foregroundStyle(Palette.muted)
                     .lineSpacing(1)
-                if let verdict = item.verdict, verdict.verdict == .flag {
-                    Text(verdict.reason)
-                        .font(Typo.body(12))
-                        .foregroundStyle(Palette.orangeInk)
-                        .lineSpacing(1)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .trailing, spacing: 4) {
                 Text(amountText)
                     .font(Typo.mono(14))
-                    .foregroundStyle(isSpent ? Palette.ink : Palette.muted)
-                    .strikethrough(item.status == .blocked || item.status == .declined)
+                    .foregroundStyle(item.outcome.isMoneyMoving ? Palette.ink : Palette.muted)
+                    .strikethrough(item.outcome.isStopped && item.amount > .zero)
                 Text(item.time)
                     .font(Typo.body(11))
                     .foregroundStyle(Palette.muted)
@@ -146,24 +148,24 @@ struct ActivityRow: View {
         showsDependent ? "\(item.title) · \(MockData.name(of: item.dependentID))" : item.title
     }
 
-    private var amountText: String {
-        guard let sent = item.sentAmount else { return item.amount.display }
-        return "\(sent.display) of \(item.amount.compact)"
+    private var text: String {
+        showsGuardianSummary ? (item.summaryForGuardian ?? item.reply) : item.reply
     }
 
-    private var isSpent: Bool {
-        item.status == .sent || item.status == .partlySent
+    /// `amount_sent` is the source of truth for money, so a part-sent row shows both.
+    private var amountText: String {
+        if item.outcome == .sentPartial, item.amountSent > .zero {
+            return "\(item.amountSent.display) of \(item.amount.compact)"
+        }
+        return item.amount > .zero ? item.amount.display : "—"
     }
 }
 
 #Preview {
     ScrollView {
         VStack(spacing: 12) {
-            HStack(spacing: 8) {
-                ForEach([RequestStatus.sent, .partlySent, .needsProof], id: \.self) { StatusBadge(status: $0) }
-            }
-            HStack(spacing: 8) {
-                ForEach([RequestStatus.needsGuardian, .declined, .blocked], id: \.self) { StatusBadge(status: $0) }
+            FlowLayout(spacing: 8) {
+                ForEach(Outcome.allCases, id: \.self) { StatusBadge(outcome: $0) }
             }
             ListCard {
                 ForEach(MockData.activity[0].items) { ActivityRow(item: $0) }

@@ -1,44 +1,47 @@
 import Foundation
 
-/// SPEC §6.5. The list is fixed: a category the guardian invents cannot reach the engine.
+/// The categories the agent layer actually uses (`contracts/agent.py`).
+///
+/// These replace the longer list in SPEC §6.5: the gateway README is explicit that
+/// where SPEC and the service contracts differ on categories, field names, outcomes
+/// or the review rule, the contracts win. Note there is no `emergency` category —
+/// an emergency is a flag on the request, not a kind of spending.
 enum Category: String, CaseIterable, Identifiable, Sendable {
-    case food, transport, education, health, housing, clothing
-    case entertainment, gaming, gambling, subscriptions, gifts, emergency, other
+    case education, food, transport, health, clothing
+    case entertainment, gaming, savings, allowance, other
 
     var id: String { rawValue }
 
+    /// `allowance` is the scheduled payment's own category and cannot be blocked.
+    static var blockable: [Category] { allCases.filter { $0 != .allowance } }
+
     var label: String {
         switch self {
+        case .education: "Education"
         case .food: "Food"
         case .transport: "Transport"
-        case .education: "Education"
         case .health: "Health"
-        case .housing: "Housing"
         case .clothing: "Clothing"
         case .entertainment: "Entertainment"
         case .gaming: "Gaming"
-        case .gambling: "Gambling"
-        case .subscriptions: "Subscriptions"
-        case .gifts: "Gifts"
-        case .emergency: "Emergency"
+        case .savings: "Savings"
+        case .allowance: "Allowance"
         case .other: "Other"
-        }
-    }
-}
-
-enum Cadence: String, Sendable {
-    case weekly, none
-
-    var label: String {
-        switch self {
-        case .weekly: "Weekly"
-        case .none: "On request only"
         }
     }
 }
 
 enum Weekday: String, CaseIterable, Sendable {
     case mon, tue, wed, thu, fri, sat, sun
+
+    /// The gateway stores the weekday as an int, 0 = Monday.
+    init(index: Int) {
+        self = Weekday.allCases.indices.contains(index) ? Weekday.allCases[index] : .mon
+    }
+
+    var index: Int {
+        Weekday.allCases.firstIndex(of: self) ?? 0
+    }
 
     var label: String {
         switch self {
@@ -53,39 +56,44 @@ enum Weekday: String, CaseIterable, Sendable {
     }
 }
 
-/// The outer limits the engine enforces (SPEC §7). Code checks these; it never
-/// interprets `Policy.guidance`.
-struct Limits: Sendable {
+/// A scheduled allowance. Absent entirely when the guardian doesn't want one.
+struct Allowance: Sendable {
+    var amount: Units
+    var weekday: Weekday
+}
+
+/// `PolicyBody` from `contracts/policy.py` — the exact object whose hash the
+/// guardian's wallet signs.
+struct PolicyBody: Sendable {
     var weeklyCap: Units
     var maxPerRequest: Units
     var blockedCategories: [Category]
     var proofThreshold: Units
-    var auditThreshold: Units
-    var lowConfidenceThreshold: Double
-    var maxRequestsPerDay: Int
+    /// Absent means the engine uses 25% of the weekly cap.
+    var reviewThreshold: Units?
+    var allowance: Allowance?
+    /// One block of plain language, not a list — at most 4,000 characters. The agent
+    /// interprets it; code never enforces it; the dependent never sees it.
+    var guidance: String
+
+    /// What the engine will actually review at, once the default is applied.
+    var effectiveReviewThreshold: Units {
+        reviewThreshold ?? Units(raw: weeklyCap.raw / 4)
+    }
+
+    var usesDefaultReviewThreshold: Bool { reviewThreshold == nil }
 }
 
-struct Allowance: Sendable {
-    var amount: Units
-    var cadence: Cadence
-    var weekday: Weekday
-}
-
-/// One signed, versioned policy. A policy only counts once the guardian has
-/// signed `bodyHash` with their wallet (SPEC §7, SEC-04).
+/// A signed, versioned policy as the app reads it back.
 struct Policy: Identifiable, Sendable {
     let id: String
     let dependentID: String
     let version: Int
     let bodyHash: String
     let activatedAt: String
-    var limits: Limits
-    var allowance: Allowance
-    /// Plain-language intent the agent interprets. Never enforced by code, and
-    /// never shown to the dependent (SPEC §17, SEC-10).
-    var guidance: [String]
-    /// The agent's plain-language rendering of the policy, shown before signing.
+    var body: PolicyBody
+    /// The agent's plain-language rendering, shown before signing.
     var summary: String
-    /// "If X asks for Y, I would Z" — the guardian corrects these before signing.
-    var testCases: [String]
+    /// "If X asks for Y, I would Z" — `draft.test_scenarios` from the interview.
+    var testScenarios: [String]
 }

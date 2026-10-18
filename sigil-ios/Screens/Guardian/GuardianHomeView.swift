@@ -93,7 +93,7 @@ struct GuardianHomeView: View {
             }
 
             HStack(spacing: 8) {
-                darkChip(icon: "drop.fill", text: "Reservoir \(MockData.reservoirRemaining.compact) left")
+                darkChip(icon: "drop.fill", text: reservoirText)
                 darkChip(icon: "checkmark.shield", text: "\(MockData.dependents.count) active policies")
             }
         }
@@ -113,6 +113,13 @@ struct GuardianHomeView: View {
         }
         .background(Palette.ink)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    /// `delegated_remaining` is null when the crypto layer can't be read, and the
+    /// app must say so rather than show a number it made up.
+    private var reservoirText: String {
+        guard let remaining = MockData.reservoirRemaining else { return "Reservoir unavailable" }
+        return "Reservoir \(remaining.compact) left"
     }
 
     private func darkChip(icon: String, text: String) -> some View {
@@ -170,7 +177,7 @@ struct GuardianHomeView: View {
 
             HStack(alignment: .top, spacing: 10) {
                 SigilMark(size: 24)
-                Text("\(Text("Agent:").bold().foregroundStyle(Palette.ink)) \(question.agentReasoning)")
+                Text("\(Text("Agent:").bold().foregroundStyle(Palette.ink)) \(question.agentView)")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.textSecondary)
                     .lineSpacing(2)
@@ -179,10 +186,20 @@ struct GuardianHomeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Palette.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-            if let codes = question.reasonCodes.first {
-                Text(codes.explanation)
-                    .font(Typo.body(12))
-                    .foregroundStyle(Palette.muted)
+            if let auditorView = question.auditorView {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "flag")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Palette.orangeInk)
+                        .padding(.top, 1)
+                    Text("\(Text("Auditor:").bold().foregroundStyle(Palette.orangeDeep)) \(auditorView)")
+                        .font(Typo.body(13))
+                        .foregroundStyle(Palette.orangeInk)
+                        .lineSpacing(2)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.orangeSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
             HStack(spacing: 10) {
@@ -245,7 +262,7 @@ struct GuardianHomeView: View {
             }
             ListCard {
                 ForEach(MockData.activity[0].items.prefix(3)) { item in
-                    ActivityRow(item: item)
+                    ActivityRow(item: item, showsGuardianSummary: true)
                 }
             }
         }

@@ -3,7 +3,7 @@ import SwiftUI
 struct DependentPolicyView: View {
     private let me = MockData.dependents[0]
     private var policy: Policy { MockData.policy(for: me.id) }
-    private var limits: Limits { policy.limits }
+    private var limits: PolicyBody { policy.body }
     private var budget: Budget { MockData.budget(for: me.id) }
     private var guardianName: String { MockData.guardian.shortName }
 
@@ -17,16 +17,16 @@ struct DependentPolicyView: View {
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "How the agent decides")
 
-                ruleCard(status: .sent, title: "Sent on its own") {
+                ruleCard(outcome: .sentFull, title: "Sent on its own") {
                     Text("Requests up to \(limits.maxPerRequest.compact), as long as you're still inside your weekly \(limits.weeklyCap.compact).")
                 }
-                ruleCard(status: .needsProof, title: "Needs a receipt") {
-                    Text("Anything over \(limits.proofThreshold.compact). Send a photo and the agent carries on.")
+                ruleCard(outcome: .askedProof, title: "Needs a receipt") {
+                    Text("Anything over \(limits.proofThreshold.compact). Take a photo in the app and the agent carries on.")
                 }
-                ruleCard(status: .needsGuardian, title: "Goes to \(guardianName) first") {
+                ruleCard(outcome: .askedGuardian, title: "Goes to \(guardianName) first") {
                     Text("Anything over \(limits.maxPerRequest.compact), or past your weekly limit. She answers with her wallet, so only she can approve it.")
                 }
-                ruleCard(status: .blocked, title: "Never sent") {
+                ruleCard(outcome: .blocked, title: "Never sent") {
                     FlowLayout(spacing: 6) {
                         ForEach(limits.blockedCategories) { category in
                             Text(category.label)
@@ -75,9 +75,9 @@ struct DependentPolicyView: View {
         .cardStyle(radius: 24)
     }
 
-    private func ruleCard<Detail: View>(status: RequestStatus, title: String, @ViewBuilder detail: () -> Detail) -> some View {
+    private func ruleCard<Detail: View>(outcome: Outcome, title: String, @ViewBuilder detail: () -> Detail) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            DecisionIcon(status: status)
+            DecisionIcon(outcome: outcome)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(Typo.body(15, .bold))
                 detail()

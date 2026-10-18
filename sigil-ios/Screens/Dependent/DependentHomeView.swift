@@ -9,7 +9,7 @@ struct DependentHomeView: View {
     /// The signed-in dependent. Only ever their own data (SEC-10).
     private let me = MockData.dependents[0]
     private var budget: Budget { MockData.budget(for: me.id) }
-    private var limits: Limits { MockData.policy(for: me.id).limits }
+    private var limits: PolicyBody { MockData.policy(for: me.id).body }
     private var guardianName: String { MockData.guardian.shortName }
 
     var body: some View {
@@ -197,7 +197,7 @@ struct DependentHomeView: View {
                     .foregroundStyle(Palette.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            StatusBadge(status: item.status, guardianName: guardianName)
+            StatusBadge(outcome: item.outcome, guardianName: guardianName)
         }
         .padding(.vertical, 14)
         .accessibilityElement(children: .combine)
