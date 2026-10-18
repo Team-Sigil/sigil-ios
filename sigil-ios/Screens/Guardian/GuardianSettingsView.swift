@@ -41,7 +41,8 @@ struct GuardianSettingsView: View {
                     }
                     .buttonStyle(.plain)
                     ValueRow(title: MockData.guardian.wallet, value: "Devnet", mono: true)
-                    ValueRow(title: "Delegated, still unspent", value: MockData.reservoirRemaining.compact, mono: true)
+                    ValueRow(title: "Delegated, still unspent",
+                             value: MockData.reservoirRemaining?.compact ?? "Can't read the chain", mono: true)
                     Button {} label: {
                         HStack(spacing: 10) {
                             Image(systemName: "plus").font(.system(size: 15, weight: .bold))

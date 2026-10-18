@@ -12,16 +12,16 @@ struct DependentRequestsView: View {
     private var budget: Budget { MockData.budget(for: me.id) }
 
     private var pending: ActivityItem? {
-        MockData.history(for: me.id).first { $0.status == .needsGuardian }
+        MockData.history(for: me.id).first { $0.outcome.needsGuardian }
     }
 
     private var history: [ActivityItem] {
         MockData.history(for: me.id).filter { item in
             switch filter {
             case .all: true
-            case .waiting: item.status == .needsGuardian || item.status == .needsProof
-            case .sent: item.status == .sent || item.status == .partlySent
-            case .stopped: item.status == .declined || item.status == .blocked
+            case .waiting: item.outcome.needsGuardian || item.outcome == .askedProof
+            case .sent: item.outcome.isMoneyMoving
+            case .stopped: item.outcome.isStopped
             }
         }
     }
@@ -73,18 +73,17 @@ struct DependentRequestsView: View {
                     Text(item.amount.display).font(Typo.mono(30)).tracking(-0.9)
                 }
                 Spacer()
-                StatusBadge(status: item.status, guardianName: guardianName)
+                StatusBadge(outcome: item.outcome, guardianName: guardianName)
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                TimelineStep(state: .done, lineColor: Palette.ink) {
-                    Text("You asked \(Text("· 10:02 pm").font(Typo.mono(12, .regular)).foregroundStyle(Palette.muted))")
-                        .font(Typo.body(14, .semibold))
-                    Text("“Need the two textbooks for Thermodynamics.” Receipt attached.")
-                }
-                TimelineStep(state: .done, lineColor: Palette.borderStrong) {
-                    Text("Agent checked your policy").font(Typo.body(14, .semibold))
-                    Text(item.reasonCodes.first?.explanation ?? item.note)
+                ForEach(Array(MockData.pendingThread.enumerated()), id: \.element.id) { index, entry in
+                    TimelineStep(state: .done,
+                                 lineColor: index == 0 ? Palette.ink : Palette.borderStrong) {
+                        Text("\(entry.role == .dependent ? "You" : "Agent") \(Text("· \(entry.at)").font(Typo.mono(12, .regular)).foregroundStyle(Palette.muted))")
+                            .font(Typo.body(14, .semibold))
+                        Text(entry.text)
+                    }
                 }
                 TimelineStep(state: .current, lineColor: nil) {
                     Text("Waiting for \(guardianName)").font(Typo.body(14, .semibold))
@@ -104,20 +103,21 @@ struct DependentRequestsView: View {
     }
 
     private func historyRow(_ item: ActivityItem) -> some View {
-        let stopped = item.status == .declined || item.status == .blocked
+        let stopped = item.outcome.isStopped
 
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title).font(Typo.body(14, .semibold))
-                Text("\(item.note) · \(item.time)").font(Typo.body(12)).foregroundStyle(Palette.muted)
+                Text(item.reply).font(Typo.body(12)).foregroundStyle(Palette.muted).lineSpacing(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             VStack(alignment: .trailing, spacing: 6) {
-                Text(item.sentAmount?.display ?? item.amount.display)
+                Text(item.outcome.isMoneyMoving && item.amountSent > .zero
+                     ? item.amountSent.display : item.amount.display)
                     .font(Typo.mono(14))
                     .foregroundStyle(stopped ? Palette.muted : Palette.ink)
                     .strikethrough(stopped)
-                StatusBadge(status: item.status, compact: true, guardianName: guardianName)
+                StatusBadge(outcome: item.outcome, compact: true, guardianName: guardianName)
             }
         }
         .padding(.vertical, 14)

@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Stand-in data for the UI pass. Shapes match the contracts in SPEC §6–§9 so the
-/// screens can be wired to a real API without changing what they render.
+/// Stand-in data for the UI pass. Shapes follow the gateway's App API (its README)
+/// and the agent layer's contracts, so the screens can be wired to the real service
+/// without changing what they render.
 enum MockData {
-    // Ids a signed message carries (SPEC §8.4).
+    // Ids a signed message carries (gateway "Guardian signatures").
     static let familyID = "8f2c…a91d"
     static let nonce = "3c0b…77e4"
 
@@ -14,7 +15,8 @@ enum MockData {
         wallet: "4Qm1…kT8v"
     )
 
-    static let reservoirRemaining = Units(1_240)
+    /// `delegated_remaining` is nullable: the chain may simply not be readable.
+    static let reservoirRemaining: Units? = Units(1_240)
     static let sentThisMonth = Units(640)
     static let transfersThisMonth = 14
 
@@ -49,20 +51,20 @@ enum MockData {
     static let policies: [String: Policy] = [
         "mt": Policy(
             id: "p-mt", dependentID: "mt", version: 3, bodyHash: "a7f3…9c21", activatedAt: "2 Oct",
-            limits: Limits(
+            body: PolicyBody(
                 weeklyCap: Units(150), maxPerRequest: Units(60),
-                blockedCategories: [.gambling, .gaming],
-                proofThreshold: Units(50), auditThreshold: Units(30),
-                lowConfidenceThreshold: 0.6, maxRequestsPerDay: 3
+                blockedCategories: [.gaming, .entertainment],
+                proofThreshold: Units(50), reviewThreshold: Units(30),
+                allowance: Allowance(amount: Units(50), weekday: .mon),
+                guidance: """
+                Education and study materials are always a priority — don't make him \
+                justify a textbook. Clothes are fine occasionally, but question it if \
+                they start coming every week. He eats out a lot, so nudge him if food \
+                runs past half the week's budget.
+                """
             ),
-            allowance: Allowance(amount: Units(50), cadence: .weekly, weekday: .mon),
-            guidance: [
-                "Education and study materials are always a priority.",
-                "Clothes are fine occasionally; question frequent requests.",
-                "He eats out a lot — nudge him if food runs past half the week's budget.",
-            ],
             summary: "Min Thu can get up to $150 a week. Requests up to $60 go out on their own. Anything bigger comes to you first, and anything over $50 needs a receipt.",
-            testCases: [
+            testScenarios: [
                 "If Min Thu asks for $25 of lab supplies, I would send it.",
                 "If Min Thu asks for $180 of textbooks, I would ask you first.",
                 "If Min Thu asks for a $40 game pass, I would decline — gaming is blocked.",
@@ -70,42 +72,40 @@ enum MockData {
         ),
         "sm": Policy(
             id: "p-sm", dependentID: "sm", version: 2, bodyHash: "b41e…77aa", activatedAt: "28 Sep",
-            limits: Limits(
+            body: PolicyBody(
                 weeklyCap: Units(80), maxPerRequest: Units(25),
-                blockedCategories: [.gambling, .entertainment],
-                proofThreshold: Units(25), auditThreshold: Units(20),
-                lowConfidenceThreshold: 0.6, maxRequestsPerDay: 4
+                blockedCategories: [.entertainment, .gaming],
+                proofThreshold: Units(25), reviewThreshold: nil,
+                allowance: Allowance(amount: Units(80), weekday: .mon),
+                guidance: """
+                Daily food and transport are never a problem. She is careful with money, \
+                so don't make her justify small amounts.
+                """
             ),
-            allowance: Allowance(amount: Units(80), cadence: .weekly, weekday: .mon),
-            guidance: [
-                "Daily food and transport are never a problem.",
-                "She is careful — don't make her justify small amounts.",
-            ],
             summary: "Su Myat can get up to $80 a week, and her $80 allowance lands every Monday. Requests up to $25 go out on their own; anything bigger comes to you.",
-            testCases: [
+            testScenarios: [
                 "If Su Myat asks for $9 for lunch, I would send it.",
                 "If Su Myat asks for $60 for a concert, I would decline — entertainment is blocked.",
-                "If Su Myat asks for $40 for a clinic visit, I would ask you straight away.",
+                "If Su Myat says she needs $40 for a clinic visit, I would ask you straight away.",
             ]
         ),
         "ak": Policy(
             id: "p-ak", dependentID: "ak", version: 1, bodyHash: "c902…14d7", activatedAt: "11 Oct",
-            limits: Limits(
+            body: PolicyBody(
                 weeklyCap: Units(120), maxPerRequest: Units(40),
-                blockedCategories: [.gambling, .gaming, .subscriptions],
-                proofThreshold: Units(30), auditThreshold: Units(25),
-                lowConfidenceThreshold: 0.7, maxRequestsPerDay: 2
+                blockedCategories: [.gaming],
+                proofThreshold: Units(30), reviewThreshold: Units(25),
+                allowance: nil,
+                guidance: """
+                No scheduled allowance — he asks when he needs something. He is new to \
+                this, so explain every decision carefully.
+                """
             ),
-            allowance: Allowance(amount: Units.zero, cadence: Cadence.none, weekday: .mon),
-            guidance: [
-                "No scheduled allowance — he asks when he needs something.",
-                "He is new to this; explain every decision carefully.",
-            ],
             summary: "Aung Kyaw has no scheduled allowance. He can ask for up to $120 a week, in requests of up to $40, and anything over $30 needs a receipt.",
-            testCases: [
-                "If Aung Kyaw asks for $35 of groceries, I would send it with a receipt.",
+            testScenarios: [
+                "If Aung Kyaw asks for $35 of groceries, I would send it once he sends a receipt.",
                 "If Aung Kyaw asks for $80 of tools, I would ask you first.",
-                "If Aung Kyaw asks for a $12 subscription, I would decline — subscriptions are blocked.",
+                "If Aung Kyaw asks for a $12 game pass, I would decline — gaming is blocked.",
             ]
         ),
     ]
@@ -118,15 +118,15 @@ enum MockData {
 
     static let budgets: [String: Budget] = [
         "mt": Budget(
-            spent: Units(120), reserved: Units.zero, weeklyCap: Units(150),
+            spent: Units(120), reserved: .zero, weeklyCap: Units(150), remaining: Units(30),
             delegatedRemaining: reservoirRemaining, resetText: "Resets Mon 20 Oct"
         ),
         "sm": Budget(
-            spent: Units(48), reserved: Units(9), weeklyCap: Units(80),
+            spent: Units(48), reserved: Units(9), weeklyCap: Units(80), remaining: Units(23),
             delegatedRemaining: reservoirRemaining, resetText: "Resets Mon 20 Oct"
         ),
         "ak": Budget(
-            spent: Units(35), reserved: Units.zero, weeklyCap: Units(120),
+            spent: Units(35), reserved: .zero, weeklyCap: Units(120), remaining: Units(85),
             delegatedRemaining: reservoirRemaining, resetText: "Resets Mon 20 Oct"
         ),
     ]
@@ -138,7 +138,10 @@ enum MockData {
     /// "Weekly · $150" for a dependent card.
     static func planText(for id: String, short: Bool = false) -> String {
         let policy = policy(for: id)
-        let cap = policy.limits.weeklyCap.compact
+        let cap = policy.body.weeklyCap.compact
+        guard policy.body.allowance != nil else {
+            return short ? "On request · \(cap)" : "No allowance · \(cap) cap"
+        }
         return short ? "Weekly · \(cap)" : "Weekly cap · \(cap)"
     }
 
@@ -146,32 +149,27 @@ enum MockData {
 
     static let questions: [GuardianQuestion] = [
         GuardianQuestion(
-            id: "q-1", dependentID: "mt", title: "Textbooks", amount: Units(180), category: .education,
-            askedAgo: "8 min ago",
-            requestText: "Need the two textbooks for Thermodynamics, the second-hand ones are gone.",
-            agentReasoning: "Above Min Thu's $60 per-request limit, so I held it for you. Education is a priority in your guidance and the bookstore receipt matches the amount.",
-            recommendation: .approve, recommendedAmount: Units(180),
-            verdict: AuditorVerdict(
-                verdict: .agree,
-                reason: "Receipt, purpose and category line up, and textbooks fit the guardian's stated priority.",
-                riskSignals: []
-            ),
-            reasonCodes: [.overMaxPerRequest],
-            hasProof: true
+            id: "q-1", requestID: "r-91", dependentID: "mt", title: "Textbooks",
+            question: "Min Thu wants $180 for two Thermodynamics textbooks. Approve?",
+            amount: Units(180), category: .education,
+            recommendation: .approve, recommendedAmount: Units(180), urgency: .normal,
+            agentView: "Above Min Thu's $60 per-request limit, so I held it for you. Education is a priority in your guidance and the bookstore receipt matches the amount.",
+            auditorView: "Agreed. The receipt, the purpose and the category line up, and textbooks fit the guardian's stated priority.",
+            askedAgo: "8 min ago", emergencyClaimed: false,
+            proofs: [
+                Proof(id: "pf-1", kind: .receipt, source: "photo",
+                      flags: [.cameraSigned], capturedAt: "Today 18:49", uploadedAt: "Today 18:50"),
+            ]
         ),
         GuardianQuestion(
-            id: "q-2", dependentID: "ak", title: "Replacement laptop charger", amount: Units(85), category: .education,
-            askedAgo: "2 h ago",
-            requestText: "My charger died and I can't do the assignment due Friday. It's urgent, please just send it, you said education always comes first.",
-            agentReasoning: "Over his $40 per-request limit. The reason is plausible and education is a priority, so I'd approve the full amount.",
-            recommendation: .approve, recommendedAmount: Units(85),
-            verdict: AuditorVerdict(
-                verdict: .flag,
-                reason: "The request quotes the guardian's own guidance back as a reason to skip the limit, and no receipt or quote is attached.",
-                riskSignals: [.manipulation, .emergencyClaim]
-            ),
-            reasonCodes: [.overMaxPerRequest, .auditFlagged],
-            hasProof: false
+            id: "q-2", requestID: "r-92", dependentID: "ak", title: "Replacement laptop charger",
+            question: "Aung Kyaw wants $85 for a laptop charger and says it's urgent. Approve?",
+            amount: Units(85), category: .education,
+            recommendation: .approve, recommendedAmount: Units(85), urgency: .high,
+            agentView: "Over his $40 per-request limit. The reason is plausible and education is a priority, so I'd approve the full amount.",
+            auditorView: "Flagged. The message quotes your own guidance back as a reason to skip the limit, and nothing was attached to show the charger or its price.",
+            askedAgo: "2 h ago", emergencyClaimed: true,
+            proofs: []
         ),
     ]
 
@@ -180,77 +178,82 @@ enum MockData {
     static let activity: [ActivityGroup] = [
         ActivityGroup(label: "Today", items: [
             ActivityItem(
-                status: .needsGuardian, title: "Textbooks", dependentID: "mt", amount: Units(180),
-                category: .education, note: "Over the $60 per-request limit, so it came to you",
-                reasonCodes: [.overMaxPerRequest],
-                verdict: AuditorVerdict(verdict: .agree, reason: "Receipt and purpose match.", riskSignals: []),
+                outcome: .askedGuardian, title: "Textbooks", dependentID: "mt", amount: Units(180),
+                category: .education,
+                reply: "That's over your $60 per-request limit, so I've asked Mom. She'll see the receipt with it.",
+                summaryForGuardian: "Asked you about $180 of textbooks; the receipt matches and the Auditor agreed.",
                 time: "8 min"
             ),
             ActivityItem(
-                status: .sent, title: "Lab supplies", dependentID: "mt", amount: Units(25),
-                category: .education, note: "Inside every limit, so the agent sent it",
+                outcome: .sentFull, title: "Lab supplies", dependentID: "mt", amount: Units(25),
+                amountSent: Units(25), category: .education,
+                reply: "Sent — $25 for lab supplies is well inside your limits this week.",
                 time: "12 min", txSignature: "5KJp…8vQa"
             ),
             ActivityItem(
-                status: .needsProof, title: "Winter jacket", dependentID: "mt", amount: Units(65),
-                category: .clothing, note: "Over the $50 receipt threshold, waiting on a photo",
-                reasonCodes: [.proofRequired], time: "40 min"
+                outcome: .askedProof, title: "Winter jacket", dependentID: "mt", amount: Units(65),
+                category: .clothing,
+                reply: "Anything over $50 needs a receipt — take a photo in the app and I'll carry on.",
+                time: "40 min"
             ),
             ActivityItem(
-                status: .sent, title: "Lunch", dependentID: "sm", amount: Units(9),
-                category: .food, note: "Inside every limit, so the agent sent it",
+                outcome: .sentFull, title: "Lunch", dependentID: "sm", amount: Units(9),
+                amountSent: Units(9), category: .food,
+                reply: "Sent — enjoy lunch.",
                 time: "1:20 pm", txSignature: "3Bn7…kR2x"
             ),
             ActivityItem(
-                status: .needsGuardian, title: "Replacement laptop charger", dependentID: "ak", amount: Units(85),
-                category: .education, note: "Auditor flagged it, so it came to you",
-                reasonCodes: [.overMaxPerRequest, .auditFlagged],
-                verdict: AuditorVerdict(
-                    verdict: .flag,
-                    reason: "Quotes your guidance back as a reason to skip the limit, with no receipt.",
-                    riskSignals: [.manipulation, .emergencyClaim]
-                ),
-                time: "2 h"
+                outcome: .auditorFlagged, title: "Replacement laptop charger", dependentID: "ak",
+                amount: Units(85), category: .education,
+                reply: "This one needs Mom. I've sent her what you told me and my own view.",
+                summaryForGuardian: "The Auditor flagged this: the message quotes your guidance back to justify skipping the limit.",
+                emergencyClaimed: true, time: "2 h"
             ),
         ]),
         ActivityGroup(label: "Yesterday", items: [
             ActivityItem(
-                status: .sent, title: "Clinic visit", dependentID: "sm", amount: Units(85),
-                category: .emergency, note: "Emergency, so the Auditor reviewed it and you approved it",
-                verdict: AuditorVerdict(verdict: .agree, reason: "Consistent with a genuine medical need.", riskSignals: [.emergencyClaim]),
-                time: "6:05 pm", txSignature: "7Wd2…pM4c"
+                outcome: .sentFull, title: "Clinic visit", dependentID: "sm", amount: Units(85),
+                amountSent: Units(85), category: .health,
+                reply: "Mom approved it and it's sent. Hope you feel better.",
+                emergencyClaimed: true, time: "6:05 pm", txSignature: "7Wd2…pM4c"
             ),
             ActivityItem(
-                status: .partlySent, title: "Groceries and snacks", dependentID: "ak", amount: Units(50),
-                sentAmount: Units(35), category: .food, note: "The agent offered $35 and explained why",
+                outcome: .sentPartial, title: "Groceries and snacks", dependentID: "ak",
+                amount: Units(50), amountSent: Units(35), category: .food,
+                reply: "I've sent $35 for the groceries. The snacks can wait until next week's budget.",
                 time: "11:15 am", txSignature: "9Lk5…tZ7b"
             ),
             ActivityItem(
-                status: .sent, title: "Bus pass", dependentID: "mt", amount: Units(30),
-                category: .transport, note: "Inside every limit, so the agent sent it",
+                outcome: .sentFull, title: "Bus pass", dependentID: "mt", amount: Units(30),
+                amountSent: Units(30), category: .transport,
+                reply: "Sent — that's your travel sorted for the week.",
                 time: "8:40 am", txSignature: "2Vb8…nH9d"
             ),
         ]),
         ActivityGroup(label: "Tue 14 Oct", items: [
             ActivityItem(
-                status: .blocked, title: "Concert tickets", dependentID: "mt", amount: Units(90),
-                category: .entertainment, note: "Entertainment is blocked in the policy",
-                reasonCodes: [.blockedCategory], time: "9:12 pm"
+                outcome: .blocked, title: "Concert tickets", dependentID: "mt", amount: Units(90),
+                category: .entertainment,
+                reply: "I can't send this one — entertainment is blocked in your policy. Ask Mom if you'd like that changed.",
+                time: "9:12 pm"
             ),
             ActivityItem(
-                status: .declined, title: "New headphones", dependentID: "mt", amount: Units(70),
-                category: .other, note: "The agent said no — not much of the week's budget was left",
+                outcome: .counterOffer, title: "New headphones", dependentID: "mt", amount: Units(70),
+                category: .other,
+                reply: "There's only $30 left this week. I can send that now, or the full $70 on Monday — your call.",
                 time: "7:02 pm"
             ),
             ActivityItem(
-                status: .sent, title: "Groceries", dependentID: "mt", amount: Units(40),
-                category: .food, note: "Inside every limit, so the agent sent it",
+                outcome: .sentFull, title: "Groceries", dependentID: "mt", amount: Units(40),
+                amountSent: Units(40), category: .food,
+                reply: "Sent — $40 for groceries.",
                 time: "5:30 pm", txSignature: "6Rf1…yC3k"
             ),
             ActivityItem(
-                status: .sent, title: "Phone top-up", dependentID: "sm", amount: Units(6),
-                category: .other, note: "Inside every limit, so the agent sent it",
-                time: "10:02 am", txSignature: "8Qz3…wD5m"
+                outcome: .outOfScope, title: "“what's the weather like”", dependentID: "sm",
+                amount: .zero, category: .other,
+                reply: "I only handle your allowance — I can't help with that one.",
+                time: "10:02 am"
             ),
         ]),
     ]
@@ -267,7 +270,21 @@ enum MockData {
         ("Phone top-up", "I need $15 to top up my phone"),
     ]
 
-    // MARK: Summaries and audit log
+    /// The thread of the request that is waiting on the guardian.
+    static let pendingThread: [ThreadEntry] = [
+        ThreadEntry(role: .dependent, text: "Need the two textbooks for Thermodynamics, the second-hand ones are gone.", at: "10:02 pm"),
+        ThreadEntry(role: .agent, text: "That's over your $60 per-request limit. Can you send me the receipt or the listing?", at: "10:02 pm"),
+        ThreadEntry(role: .dependent, text: "Just took a photo of the bookstore receipt.", at: "10:04 pm"),
+        ThreadEntry(role: .agent, text: "Thanks — that matches. I've asked Mom and she'll see the receipt with my recommendation.", at: "10:04 pm"),
+    ]
+
+    // MARK: Notifications, summaries, audit
+
+    static let notifications: [Notification] = [
+        Notification(id: "n-1", message: "Min Thu asked for $180 for textbooks.", time: "8 min", isRead: false),
+        Notification(id: "n-2", message: "The Auditor flagged Aung Kyaw's $85 charger request.", time: "2 h", isRead: false),
+        Notification(id: "n-3", message: "Your reservoir covers about three more weeks.", time: "Yesterday", isRead: true),
+    ]
 
     static let summaries: [WeeklySummary] = [
         WeeklySummary(
@@ -282,12 +299,14 @@ enum MockData {
         ),
     ]
 
+    static let auditChainValid = true
+
     static let auditLog: [AuditLogEntry] = [
-        AuditLogEntry(id: 2041, event: "decision", detail: "Textbooks · needs guardian · OVER_MAX_PER_REQUEST", time: "18:52", hashPrefix: "e41c…"),
-        AuditLogEntry(id: 2040, event: "audit_verdict", detail: "Textbooks · agree", time: "18:52", hashPrefix: "9b7a…"),
+        AuditLogEntry(id: 2041, event: "decision_recorded", detail: "Textbooks · asked_guardian", time: "18:52", hashPrefix: "e41c…"),
+        AuditLogEntry(id: 2040, event: "verdict_recorded", detail: "Textbooks · agree", time: "18:52", hashPrefix: "9b7a…"),
         AuditLogEntry(id: 2039, event: "request_created", detail: "Textbooks · $180.00 · education", time: "18:51", hashPrefix: "22f8…"),
-        AuditLogEntry(id: 2038, event: "transfer_confirmed", detail: "Lab supplies · 5KJp…8vQa", time: "18:40", hashPrefix: "c105…"),
-        AuditLogEntry(id: 2037, event: "decision", detail: "Lab supplies · cleared", time: "18:39", hashPrefix: "7d3e…"),
+        AuditLogEntry(id: 2038, event: "proof_uploaded", detail: "Receipt · camera_signed", time: "18:50", hashPrefix: "70bd…"),
+        AuditLogEntry(id: 2037, event: "transfer_sent", detail: "Lab supplies · 5KJp…8vQa", time: "18:40", hashPrefix: "c105…"),
         AuditLogEntry(id: 2036, event: "policy_activated", detail: "Min Thu · version 3 · a7f3…9c21", time: "2 Oct", hashPrefix: "4a90…"),
     ]
 }
