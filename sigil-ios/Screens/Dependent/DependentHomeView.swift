@@ -1,10 +1,16 @@
 import SwiftUI
 
-struct StudentHomeView: View {
-    @Binding var tab: StudentTab
+struct DependentHomeView: View {
+    @Binding var tab: DependentTab
     @State private var draft = ""
     @State private var sent = false
     @FocusState private var draftFocused: Bool
+
+    /// The signed-in dependent. Only ever their own data (SEC-10).
+    private let me = MockData.dependents[0]
+    private var budget: Budget { MockData.budget(for: me.id) }
+    private var limits: Limits { MockData.policy(for: me.id).limits }
+    private var guardianName: String { MockData.guardian.shortName }
 
     var body: some View {
         Screen(spacing: 20) {
@@ -19,18 +25,19 @@ struct StudentHomeView: View {
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Hi, Min Thu")
+                Text("Hi, \(me.name)")
                     .font(Typo.display(28))
                     .tracking(-0.6)
                     .accessibilityAddTraits(.isHeader)
-                Text("Funded by Mom · Weekly plan")
+                Text("Funded by \(guardianName) · \(MockData.planText(for: me.id, short: true))")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.muted)
             }
             Spacer()
             CircleIconButton(systemImage: "bell", label: "Notifications")
             Button { tab = .profile } label: {
-                Avatar(initials: "MT", fontSize: 14)
+                Avatar(initials: me.initials, background: me.avatarBackground,
+                       foreground: me.avatarForeground, fontSize: 14)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Profile")
@@ -42,21 +49,21 @@ struct StudentHomeView: View {
             HStack {
                 Text("Left this week").font(Typo.body(14, .semibold))
                 Spacer()
-                Text("Resets Mon 20 Oct")
+                Text(budget.resetText)
                     .font(Typo.mono(12, .regular))
                     .foregroundStyle(.white.opacity(0.86))
             }
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("$30.00")
+                Text(budget.remaining.display)
                     .font(Typo.mono(48))
                     .tracking(-1.9)
-                Text("of $150")
+                Text("of \(budget.weeklyCap.compact)")
                     .font(Typo.body(14))
                     .foregroundStyle(.white.opacity(0.86))
             }
             VStack(alignment: .leading, spacing: 8) {
-                ProgressBar(fraction: 0.2, fill: .white, track: .white.opacity(0.24))
-                Text("$120 spent across 5 requests")
+                ProgressBar(fraction: 1 - budget.fraction, fill: .white, track: .white.opacity(0.24))
+                Text("\(budget.spent.compact) spent this week")
                     .font(Typo.body(12))
                     .foregroundStyle(.white.opacity(0.86))
             }
@@ -135,7 +142,7 @@ struct StudentHomeView: View {
                 .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .transition(.opacity)
             } else {
-                Text("Requests inside your policy are sent in seconds. Anything else goes to Mom to approve.")
+                Text("Requests inside your policy are sent in seconds. Anything else goes to \(guardianName) to approve.")
                     .font(Typo.body(12))
                     .foregroundStyle(Palette.muted)
                     .lineSpacing(2)
@@ -156,13 +163,13 @@ struct StudentHomeView: View {
     private var policy: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Your policy") {
-                Text("Set by Mom").font(Typo.body(13)).foregroundStyle(Palette.muted)
+                Text("Set by \(guardianName)").font(Typo.body(13)).foregroundStyle(Palette.muted)
             }
             ListCard {
-                InfoRow(title: "Weekly limit", value: "$150")
-                InfoRow(title: "Per request, auto-sent", value: "up to $60")
-                InfoRow(title: "Receipt needed over", value: "$50")
-                InfoRow(title: "Blocked", value: "Gambling · Alcohol · Nightlife", mono: false)
+                InfoRow(title: "Weekly limit", value: limits.weeklyCap.compact)
+                InfoRow(title: "Per request, auto-sent", value: "up to \(limits.maxPerRequest.compact)")
+                InfoRow(title: "Receipt needed over", value: limits.proofThreshold.compact)
+                InfoRow(title: "Blocked", value: limits.blockedCategories.map(\.label).joined(separator: " · "), mono: false)
             }
             .onTapGesture { tab = .policy }
         }
@@ -174,21 +181,23 @@ struct StudentHomeView: View {
                 LinkButton(title: "See all") { tab = .requests }
             }
             ListCard {
-                requestRow("Lab supplies", "$25.00 · 12 min ago", .sent)
-                requestRow("Textbooks", "$180.00 · over $60 limit", .pending)
-                requestRow("Concert tickets", "$90.00 · blocked category", .declined)
+                ForEach(MockData.history(for: me.id).prefix(3)) { item in
+                    requestRow(item)
+                }
             }
         }
     }
 
-    private func requestRow(_ title: String, _ detail: String, _ kind: DecisionKind) -> some View {
+    private func requestRow(_ item: ActivityItem) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(Typo.body(14, .semibold))
-                Text(detail).font(Typo.mono(13, .regular)).foregroundStyle(Palette.textSecondary)
+                Text(item.title).font(Typo.body(14, .semibold))
+                Text("\(item.amount.display) · \(item.time)")
+                    .font(Typo.mono(13, .regular))
+                    .foregroundStyle(Palette.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            StatusBadge(kind: kind)
+            StatusBadge(status: item.status, guardianName: guardianName)
         }
         .padding(.vertical, 14)
         .accessibilityElement(children: .combine)
@@ -196,5 +205,5 @@ struct StudentHomeView: View {
 }
 
 #Preview {
-    StudentHomeView(tab: .constant(.home))
+    DependentHomeView(tab: .constant(.home))
 }

@@ -1,134 +1,175 @@
 import SwiftUI
 
-/// Round icon showing how the agent handled a request.
 struct DecisionIcon: View {
-    let kind: DecisionKind
-    var size: CGFloat = 40
+    let status: RequestStatus
 
     var body: some View {
-        Group {
-            switch kind {
-            case .sent:
-                symbol("checkmark", weight: .bold)
-                    .foregroundStyle(Palette.blueInk)
-                    .background(Palette.blueSoft, in: Circle())
-            case .held, .pending:
-                symbol("clock", weight: .semibold)
-                    .foregroundStyle(Palette.ink)
-                    .overlay(Circle().strokeBorder(Palette.ink, lineWidth: 1.5))
-            case .emergency:
-                symbol("exclamationmark.triangle", weight: .semibold)
-                    .foregroundStyle(Palette.orangeInk)
-                    .background(Palette.orangeSoft, in: Circle())
-            case .declined:
-                symbol("xmark", weight: .bold)
-                    .foregroundStyle(Palette.segmentOff)
-                    .background(Palette.graySoft, in: Circle())
-            }
+        switch status {
+        case .sent:
+            symbol("checkmark", weight: .bold)
+                .foregroundStyle(Palette.paper)
+                .background(Palette.ink, in: Circle())
+        case .partlySent:
+            symbol("arrow.down.right", weight: .bold)
+                .foregroundStyle(Palette.blueInk)
+                .background(Palette.blueSoft, in: Circle())
+        case .needsProof:
+            symbol("camera", weight: .semibold)
+                .foregroundStyle(Palette.orangeInk)
+                .background(Palette.orangeSoft, in: Circle())
+        case .needsGuardian:
+            symbol("clock", weight: .semibold)
+                .foregroundStyle(Palette.ink)
+                .background(Circle().strokeBorder(Palette.borderStrong, lineWidth: 1))
+        case .declined:
+            symbol("xmark", weight: .bold)
+                .foregroundStyle(Palette.segmentOff)
+                .background(Palette.graySoft, in: Circle())
+        case .blocked:
+            symbol("hand.raised", weight: .semibold)
+                .foregroundStyle(Palette.danger)
+                .background(Palette.dangerSoft, in: Circle())
         }
-        .accessibilityHidden(true)
     }
 
     private func symbol(_ name: String, weight: Font.Weight) -> some View {
         Image(systemName: name)
-            .font(.system(size: size * 0.4, weight: weight))
-            .frame(width: size, height: size)
+            .font(.system(size: 13, weight: weight))
+            .frame(width: 32, height: 32)
+            .accessibilityHidden(true)
     }
 }
 
-/// Small status pill: Sent / With Mom / Declined.
 struct StatusBadge: View {
-    let kind: DecisionKind
+    let status: RequestStatus
     var compact = false
+    /// Set on dependent-facing screens so "Needs guardian" reads "With Mom".
+    var guardianName: String?
 
     var body: some View {
-        HStack(spacing: compact ? 4 : 5) {
+        HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: compact ? 9 : 10, weight: .heavy))
-            Text(label)
+                .font(.system(size: compact ? 9 : 10, weight: .bold))
+            Text(guardianName.map(label(guardianName:)) ?? status.label)
                 .font(Typo.body(compact ? 11 : 12, .semibold))
         }
+        .foregroundStyle(foreground)
         .padding(.horizontal, compact ? 8 : 10)
         .frame(height: compact ? 24 : 28)
-        .foregroundStyle(foreground)
         .background(background, in: Capsule())
         .overlay {
-            if kind == .pending || kind == .held {
-                Capsule().strokeBorder(Palette.ink, lineWidth: 1)
+            if status == .needsGuardian {
+                Capsule().strokeBorder(Palette.borderStrong, lineWidth: 1)
             }
         }
+        .accessibilityLabel(status.label)
     }
 
-    private var label: String {
-        switch kind {
-        case .sent: "Sent"
-        case .held, .pending: "With Mom"
-        case .emergency: "Emergency"
-        case .declined: "Declined"
-        }
+    private func label(guardianName: String) -> String {
+        status.label(guardianName: guardianName)
     }
 
     private var icon: String {
-        switch kind {
+        switch status {
         case .sent: "checkmark"
-        case .held, .pending: "clock"
-        case .emergency: "exclamationmark.triangle"
+        case .partlySent: "arrow.down.right"
+        case .needsProof: "camera"
+        case .needsGuardian: "clock"
         case .declined: "xmark"
+        case .blocked: "hand.raised"
         }
     }
 
     private var foreground: Color {
-        switch kind {
+        switch status {
         case .sent: Palette.paper
-        case .held, .pending: Palette.ink
-        case .emergency: Palette.orangeInk
+        case .partlySent: Palette.blueInk
+        case .needsProof: Palette.orangeInk
+        case .needsGuardian: Palette.ink
         case .declined: Palette.segmentOff
+        case .blocked: Palette.danger
         }
     }
 
     private var background: Color {
-        switch kind {
+        switch status {
         case .sent: Palette.ink
-        case .held, .pending: .clear
-        case .emergency: Palette.orangeSoft
+        case .partlySent: Palette.blueSoft
+        case .needsProof: Palette.orangeSoft
+        case .needsGuardian: .clear
         case .declined: Palette.graySoft
+        case .blocked: Palette.dangerSoft
         }
     }
 }
 
-/// Activity row used on the guardian home and activity screens.
 struct ActivityRow: View {
-    let kind: DecisionKind
-    let title: String
-    let subtitle: String
-    let amount: String
-    var time: String?
+    let item: ActivityItem
+    /// Shown on the guardian's screens, where several dependents are mixed together.
+    var showsDependent = true
 
     var body: some View {
-        HStack(spacing: 12) {
-            DecisionIcon(kind: kind)
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top, spacing: 12) {
+            DecisionIcon(status: item.status)
+
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(Typo.body(14, .semibold))
-                Text(subtitle)
+                Text(item.note)
                     .font(Typo.body(12))
                     .foregroundStyle(Palette.muted)
                     .lineSpacing(1)
+                if let verdict = item.verdict, verdict.verdict == .flag {
+                    Text(verdict.reason)
+                        .font(Typo.body(12))
+                        .foregroundStyle(Palette.orangeInk)
+                        .lineSpacing(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(amount)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(amountText)
                     .font(Typo.mono(14))
-                    .foregroundStyle(kind == .declined ? Palette.muted : Palette.ink)
-                    .strikethrough(kind == .declined)
-                if let time {
-                    Text(time)
-                        .font(Typo.mono(11, .regular))
-                        .foregroundStyle(Palette.muted)
-                }
+                    .foregroundStyle(isSpent ? Palette.ink : Palette.muted)
+                    .strikethrough(item.status == .blocked || item.status == .declined)
+                Text(item.time)
+                    .font(Typo.body(11))
+                    .foregroundStyle(Palette.muted)
             }
         }
         .padding(.vertical, 14)
         .accessibilityElement(children: .combine)
     }
+
+    private var title: String {
+        showsDependent ? "\(item.title) · \(MockData.name(of: item.dependentID))" : item.title
+    }
+
+    private var amountText: String {
+        guard let sent = item.sentAmount else { return item.amount.display }
+        return "\(sent.display) of \(item.amount.compact)"
+    }
+
+    private var isSpent: Bool {
+        item.status == .sent || item.status == .partlySent
+    }
+}
+
+#Preview {
+    ScrollView {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                ForEach([RequestStatus.sent, .partlySent, .needsProof], id: \.self) { StatusBadge(status: $0) }
+            }
+            HStack(spacing: 8) {
+                ForEach([RequestStatus.needsGuardian, .declined, .blocked], id: \.self) { StatusBadge(status: $0) }
+            }
+            ListCard {
+                ForEach(MockData.activity[0].items) { ActivityRow(item: $0) }
+            }
+        }
+        .padding()
+    }
+    .background(Palette.paper)
 }

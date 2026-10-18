@@ -60,7 +60,7 @@ struct LoginView: View {
     private var form: some View {
         VStack(spacing: 18) {
             SegmentedPill(
-                options: [(Role.guardian, "Parent / Guardian"), (Role.student, "Student")],
+                options: [(Role.guardian, "Guardian"), (Role.dependent, "Dependent")],
                 selection: $role
             )
 
@@ -98,7 +98,7 @@ struct LoginView: View {
                 session.signIn(as: role)
             } label: {
                 HStack(spacing: 8) {
-                    Text("Sign in as \(role == .guardian ? "guardian" : "student")")
+                    Text("Sign in as \(role == .guardian ? "guardian" : "dependent")")
                     Image(systemName: "arrow.right").font(.system(size: 15, weight: .semibold))
                 }
             }

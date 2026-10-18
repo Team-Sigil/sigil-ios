@@ -1,25 +1,35 @@
 import SwiftUI
 
-struct StudentPolicyView: View {
+struct DependentPolicyView: View {
+    private let me = MockData.dependents[0]
+    private var policy: Policy { MockData.policy(for: me.id) }
+    private var limits: Limits { policy.limits }
+    private var budget: Budget { MockData.budget(for: me.id) }
+    private var guardianName: String { MockData.guardian.shortName }
+
     var body: some View {
         Screen(spacing: 22) {
-            PageTitle(title: "Your policy", subtitle: "Set by Mom · last updated 2 Oct")
+            PageTitle(title: "Your policy",
+                      subtitle: "Set by \(guardianName) · version \(policy.version) · \(policy.activatedAt)")
 
             allowanceCard
 
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "How the agent decides")
 
-                ruleCard(kind: .sent, title: "Sent instantly") {
-                    Text("Requests up to $60, as long as you’re still inside your weekly $150.")
+                ruleCard(status: .sent, title: "Sent on its own") {
+                    Text("Requests up to \(limits.maxPerRequest.compact), as long as you're still inside your weekly \(limits.weeklyCap.compact).")
                 }
-                ruleCard(kind: .held, title: "Goes to Mom first") {
-                    Text("Anything over $60, or past your weekly limit. Add a receipt for anything over $50.")
+                ruleCard(status: .needsProof, title: "Needs a receipt") {
+                    Text("Anything over \(limits.proofThreshold.compact). Send a photo and the agent carries on.")
                 }
-                ruleCard(kind: .declined, title: "Never sent") {
+                ruleCard(status: .needsGuardian, title: "Goes to \(guardianName) first") {
+                    Text("Anything over \(limits.maxPerRequest.compact), or past your weekly limit. She answers with her wallet, so only she can approve it.")
+                }
+                ruleCard(status: .blocked, title: "Never sent") {
                     FlowLayout(spacing: 6) {
-                        ForEach(["Gambling", "Alcohol", "Nightlife & events"], id: \.self) { label in
-                            Text(label)
+                        ForEach(limits.blockedCategories) { category in
+                            Text(category.label)
                                 .font(Typo.body(13, .medium))
                                 .foregroundStyle(Palette.ink)
                                 .padding(.horizontal, 10)
@@ -38,7 +48,7 @@ struct StudentPolicyView: View {
                 Text("Need different limits?")
                     .font(Typo.body(14))
                     .foregroundStyle(Palette.textSecondary)
-                Button("Ask Mom to change my policy") {}
+                Button("Ask \(guardianName) to change my policy") {}
                     .buttonStyle(SecondaryButtonStyle())
             }
             .frame(maxWidth: .infinity)
@@ -50,14 +60,14 @@ struct StudentPolicyView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Weekly allowance").font(Typo.body(13)).foregroundStyle(Palette.muted)
-                    Text("$150").font(Typo.mono(36)).tracking(-1)
+                    Text("Weekly limit").font(Typo.body(13)).foregroundStyle(Palette.muted)
+                    Text(limits.weeklyCap.compact).font(Typo.mono(36)).tracking(-1)
                 }
                 Spacer()
-                Text("Resets every Monday").font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
+                Text(budget.resetText).font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
             }
-            ProgressBar(fraction: 0.8, fill: Palette.accent)
-            Text("$120 used · $30 left")
+            ProgressBar(fraction: budget.fraction, fill: Palette.accent)
+            Text("\(budget.spent.compact) used · \(budget.remaining.compact) left")
                 .font(Typo.mono(12, .regular))
                 .foregroundStyle(Palette.textSecondary)
         }
@@ -65,9 +75,9 @@ struct StudentPolicyView: View {
         .cardStyle(radius: 24)
     }
 
-    private func ruleCard<Detail: View>(kind: DecisionKind, title: String, @ViewBuilder detail: () -> Detail) -> some View {
+    private func ruleCard<Detail: View>(status: RequestStatus, title: String, @ViewBuilder detail: () -> Detail) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            DecisionIcon(kind: kind)
+            DecisionIcon(status: status)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(Typo.body(15, .bold))
                 detail()
@@ -90,10 +100,10 @@ struct StudentPolicyView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("If it's an emergency").font(Typo.body(15, .bold))
-                    Text("Say so, and it goes straight to Mom").font(Typo.body(13)).foregroundStyle(Palette.orangeInk)
+                    Text("Say so, and it goes straight to \(guardianName)").font(Typo.body(13)).foregroundStyle(Palette.orangeInk)
                 }
             }
-            Text("Tell the agent it's an emergency — medical, safety, getting home. It skips the queue and is checked twice, then Mom decides. It doesn't lift the limits above, and nothing is sent without her.")
+            Text("Tell the agent it's an emergency — medical, safety, getting home. It skips the queue and is checked twice, then \(guardianName) decides. It doesn't lift the limits above, and nothing is sent without her.")
                 .font(Typo.body(14))
                 .foregroundStyle(Palette.orangeInk)
                 .lineSpacing(2)
@@ -105,5 +115,5 @@ struct StudentPolicyView: View {
 }
 
 #Preview {
-    StudentPolicyView()
+    DependentPolicyView()
 }

@@ -10,19 +10,19 @@ struct GuardianTabView: View {
     var body: some View {
         TabView(selection: $tab) {
             Tab("Home", systemImage: "house", value: .home) {
-                ParentHomeView(tab: $tab)
+                GuardianHomeView(tab: $tab)
             }
             Tab("Dependents", systemImage: "person.2", value: .dependents) {
-                ParentDependentsView(tab: $tab)
+                GuardianDependentsView(tab: $tab)
             }
             Tab("Policies", systemImage: "checkmark.shield", value: .policies) {
-                ParentPoliciesView()
+                GuardianPoliciesView()
             }
             Tab("Activity", systemImage: "waveform.path.ecg", value: .activity) {
-                ParentActivityView()
+                GuardianActivityView()
             }
             Tab("Settings", systemImage: "slider.horizontal.3", value: .settings) {
-                ParentSettingsView()
+                GuardianSettingsView()
             }
         }
         .tint(Palette.ink)

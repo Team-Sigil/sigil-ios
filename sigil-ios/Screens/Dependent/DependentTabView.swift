@@ -1,25 +1,25 @@
 import SwiftUI
 
-enum StudentTab: Hashable {
+enum DependentTab: Hashable {
     case home, requests, policy, profile
 }
 
-struct StudentTabView: View {
-    @State private var tab: StudentTab = .home
+struct DependentTabView: View {
+    @State private var tab: DependentTab = .home
 
     var body: some View {
         TabView(selection: $tab) {
             Tab("Home", systemImage: "house", value: .home) {
-                StudentHomeView(tab: $tab)
+                DependentHomeView(tab: $tab)
             }
             Tab("Requests", systemImage: "list.bullet.rectangle", value: .requests) {
-                StudentRequestsView(tab: $tab)
+                DependentRequestsView(tab: $tab)
             }
             Tab("Policy", systemImage: "checkmark.shield", value: .policy) {
-                StudentPolicyView()
+                DependentPolicyView()
             }
             Tab("Profile", systemImage: "person", value: .profile) {
-                StudentProfileView()
+                DependentProfileView()
             }
         }
         .tint(Palette.ink)
@@ -28,5 +28,5 @@ struct StudentTabView: View {
 }
 
 #Preview {
-    StudentTabView().environment(AppSession())
+    DependentTabView().environment(AppSession())
 }
