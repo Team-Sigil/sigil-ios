@@ -3,8 +3,6 @@ import SwiftUI
 struct ParentPoliciesView: View {
     @State private var dependentID = "mt"
     @State private var askForReceipts = true
-    @State private var emergencyTransfers = true
-    @State private var notifyInstantly = true
     @State private var blocked = MockData.blocked
 
     private var policy: PolicySummary { MockData.policies[dependentID]! }
@@ -36,18 +34,10 @@ struct ParentPoliciesView: View {
 
             LabeledSection(title: "Emergency") {
                 ListCard {
-                    ToggleRow(title: "Emergency transfers", isOn: $emergencyTransfers) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Palette.orangeInk)
-                            .frame(width: 28, height: 28)
-                            .background(Palette.orangeSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .accessibilityHidden(true)
-                    }
-                    ValueRow(title: "Monthly cap", value: "$300", mono: true)
-                    ToggleRow(title: "Notify me instantly", isOn: $notifyInstantly)
+                    ValueRow(title: "Emergency requests", value: "Always reviewed")
+                    ValueRow(title: "Then", value: "Asked of you")
                 }
-                Text("Emergency requests skip the limits above and are sent at once, up to the monthly cap. Each one shows up in Activity.")
+                Text("An emergency never skips a limit. It always goes to the Auditor first, then to you to approve with your wallet.")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.muted)
                     .lineSpacing(2)
@@ -76,18 +66,18 @@ struct ParentPoliciesView: View {
 
             LabeledSection(title: "Paid from") {
                 HStack(spacing: 12) {
-                    Image(systemName: "creditcard")
+                    Image(systemName: "drop.fill")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Palette.paper)
                         .frame(width: 44, height: 30)
                         .background(Palette.ink, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Visa •••• 4242").font(Typo.body(15, .semibold))
-                        Text("Charged through Stripe").font(Typo.body(12)).foregroundStyle(Palette.muted)
+                        Text("Your reservoir").font(Typo.body(15, .semibold))
+                        Text("$1,240 left of what you delegated").font(Typo.body(12)).foregroundStyle(Palette.muted)
                     }
                     Spacer()
-                    LinkButton(title: "Change")
+                    LinkButton(title: "Top up")
                 }
                 .padding(.vertical, -2)
                 .cardStyle(padding: 14)

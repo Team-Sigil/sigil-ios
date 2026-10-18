@@ -2,11 +2,10 @@ import SwiftUI
 
 struct ParentSettingsView: View {
     @Environment(AppSession.self) private var session
-    @State private var agentActive = true
-    @State private var faceIDApprove = true
     @State private var notifyEvery = false
     @State private var notifyHeld = true
     @State private var faceIDLogin = true
+    @State private var confirmingFreeze = false
 
     var body: some View {
         Screen(spacing: 22) {
@@ -28,11 +27,11 @@ struct ParentSettingsView: View {
             }
             .buttonStyle(.plain)
 
-            LabeledSection(title: "Payments") {
+            LabeledSection(title: "Reservoir") {
                 ListCard {
                     Button {} label: {
                         HStack(spacing: 10) {
-                            Text("Stripe account").font(Typo.body(15))
+                            Text("Wallet").font(Typo.body(15))
                             Spacer()
                             DotBadge(text: "Connected", height: 26)
                             Chevron()
@@ -41,11 +40,12 @@ struct ParentSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    ValueRow(title: "Visa •••• 4242", value: "Default")
+                    ValueRow(title: MockData.guardianWallet, value: "Devnet", mono: true)
+                    ValueRow(title: "Delegated, still unspent", value: "$1,240", mono: true)
                     Button {} label: {
                         HStack(spacing: 10) {
                             Image(systemName: "plus").font(.system(size: 15, weight: .bold))
-                            Text("Add a card").font(Typo.body(15, .semibold))
+                            Text("Top up the reservoir").font(Typo.body(15, .semibold))
                             Spacer()
                         }
                         .foregroundStyle(Palette.accent)
@@ -54,12 +54,28 @@ struct ParentSettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                Text("The money stays in your wallet. The agent only holds a spending permission you can revoke at any time.")
+                    .font(Typo.body(13))
+                    .foregroundStyle(Palette.muted)
+                    .lineSpacing(2)
+                    .padding(.horizontal, 4)
             }
 
             LabeledSection(title: "Agent") {
                 ListCard {
-                    ToggleRow(title: "Agent active", isOn: $agentActive)
-                    ToggleRow(title: "Face ID to approve held requests", isOn: $faceIDApprove)
+                    Button { confirmingFreeze = true } label: {
+                        HStack(spacing: 10) {
+                            Text(session.frozen ? "Frozen" : "Agent active").font(Typo.body(15))
+                            Spacer()
+                            Text(session.frozen ? "Unfreeze" : "Freeze")
+                                .font(Typo.body(14, .semibold))
+                                .foregroundStyle(session.frozen ? Palette.accent : Palette.danger)
+                        }
+                        .frame(minHeight: 52)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    ValueRow(title: "Approving a held request", value: "Wallet signature")
                     ValueRow(title: "Weekly summary", value: "Sundays")
                 }
             }
@@ -69,7 +85,7 @@ struct ParentSettingsView: View {
                     ToggleRow(title: "Every transfer", isOn: $notifyEvery)
                     ToggleRow(title: "Requests held for me", isOn: $notifyHeld)
                     HStack {
-                        Text("Emergency transfers").font(Typo.body(15))
+                        Text("Auditor flags").font(Typo.body(15))
                         Spacer()
                         Text("Always on").font(Typo.body(13)).foregroundStyle(Palette.muted)
                     }
@@ -92,6 +108,23 @@ struct ParentSettingsView: View {
             }
 
             SignOutButton { session.signOut() }
+        }
+        .sheet(isPresented: $confirmingFreeze) {
+            SignatureSheet(
+                title: session.frozen ? "Lift the freeze" : "Freeze all transfers",
+                summary: session.frozen
+                    ? "The agent can start sending again, inside the limits you signed."
+                    : "Nothing moves until you unfreeze, whatever the agent or the dependents ask for.",
+                message: [
+                    "FinGuard:freeze",
+                    "family:\(MockData.familyID)",
+                    "frozen:\(session.frozen ? "false" : "true")",
+                    "nonce:\(MockData.nonce)",
+                ],
+                confirmTitle: session.frozen ? "Sign and unfreeze" : "Sign and freeze"
+            ) {
+                withAnimation(.snappy) { session.frozen.toggle() }
+            }
         }
     }
 }
