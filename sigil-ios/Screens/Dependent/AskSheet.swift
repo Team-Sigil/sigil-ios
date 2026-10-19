@@ -14,10 +14,10 @@ struct AskSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var digits = ""
     @State private var category: Category?
-    @State private var note = ""
+    @State private var purpose = ""
     @State private var emergency = false
     @State private var showingAllCategories = false
-    @FocusState private var noteFocused: Bool
+    @FocusState private var amountFocused: Bool
 
     private var policy: PolicyBody { MockData.policy(for: dependent.id).body }
     private var budget: Budget { MockData.budget(for: dependent.id) }
@@ -45,8 +45,7 @@ struct AskSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     amountField
-                    categoryField
-                    noteField
+                    purposeField
                     emergencyToggle
                 }
                 .padding(.horizontal, 24)
@@ -59,6 +58,16 @@ struct AskSheet: View {
         .background(Palette.paper)
         .foregroundStyle(Palette.ink)
         .presentationDragIndicator(.visible)
+        .onAppear {
+            // `-askCategory education` preselects a chip, so the filled sheet can be
+            // checked on the simulator without tapping.
+            let arguments = ProcessInfo.processInfo.arguments
+            if let index = arguments.firstIndex(of: "-askCategory"),
+               let raw = arguments[safe: index + 1], let preset = Category(rawValue: raw) {
+                category = preset
+                purpose = preset.label
+            }
+        }
     }
 
     private var header: some View {
@@ -89,13 +98,25 @@ struct AskSheet: View {
 
     private var amountField: some View {
         VStack(spacing: 14) {
-            Text(amount > .zero ? amount.compact : "$0")
-                .font(Typo.mono(52))
-                .tracking(-2)
-                .foregroundStyle(amount > .zero ? Palette.ink : Palette.dashedChip)
-                .contentTransition(.numericText())
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel("Amount \(amount.display)")
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text("$")
+                    .font(Typo.mono(40))
+                    .foregroundStyle(amount > .zero ? Palette.ink : Palette.dashedChip)
+                TextField("0", text: $digits)
+                    .font(Typo.mono(52))
+                    .tracking(-2)
+                    .keyboardType(.numberPad)
+                    .focused($amountFocused)
+                    .fixedSize()
+                    .onChange(of: digits) { _, new in
+                        // Whole dollars only, so the amount is always an exact integer.
+                        let cleaned = new.filter(\.isNumber).prefix(6)
+                        if cleaned != new { digits = String(cleaned) }
+                    }
+                    .accessibilityLabel("Amount")
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
 
             HStack(spacing: 8) {
                 ForEach([Int64(10), 20, 50], id: \.self) { quick in
@@ -106,23 +127,35 @@ struct AskSheet: View {
                             .font(Typo.body(14, .semibold))
                             .foregroundStyle(Palette.ink)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 40)
+                            .frame(height: 44)
                             .background(Palette.card, in: Capsule())
                             .overlay(Capsule().strokeBorder(Palette.borderStrong, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
             }
-
-            Keypad(digits: $digits, keyHeight: 46)
         }
+        .onAppear { amountFocused = true }
     }
 
-    // MARK: Category
+    // MARK: What for
 
-    private var categoryField: some View {
+    /// One field, not two: tapping a chip writes it into the box, and the box can
+    /// then be edited into something more specific without losing the category.
+    private var purposeField: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: "What for?")
+
+            TextField("Tap one below, or type it", text: $purpose, axis: .vertical)
+                .lineLimit(1...3)
+                .font(Typo.body(17))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(minHeight: 54, alignment: .topLeading)
+                .background(Palette.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(category == nil ? Palette.borderStrong : Palette.ink, lineWidth: 1))
+
             FlowLayout(spacing: 8) {
                 ForEach(offeredCategories) { option in
                     categoryChip(option)
@@ -150,7 +183,11 @@ struct AskSheet: View {
         let isBlocked = policy.blockedCategories.contains(option)
 
         return Button {
-            withAnimation(.snappy) { category = option }
+            withAnimation(.snappy) {
+                category = option
+                purpose = option.label
+                amountFocused = false
+            }
         } label: {
             HStack(spacing: 5) {
                 if isBlocked {
@@ -169,22 +206,6 @@ struct AskSheet: View {
     }
 
     // MARK: Note, emergency, hint
-
-    private var noteField: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(text: "What is it for? (optional)")
-            TextField("lab supplies for Thursday", text: $note, axis: .vertical)
-                .lineLimit(1...3)
-                .font(Typo.body(16))
-                .focused($noteFocused)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .frame(minHeight: 52, alignment: .topLeading)
-                .background(Palette.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Palette.borderStrong, lineWidth: 1))
-        }
-    }
 
     private var emergencyToggle: some View {
         Toggle(isOn: $emergency) {
@@ -237,7 +258,7 @@ struct AskSheet: View {
             return "You have \(budget.remaining.compact) left this week, so I may offer you less."
         }
         if amount >= policy.proofThreshold {
-            return "Over \(policy.proofThreshold.compact) needs a receipt — I'll ask for a photo."
+            return "Over \(policy.proofThreshold.compact), I'll ask to see what it costs — a price tag, a quote, or a receipt."
         }
         return "Inside your limits, so this usually goes out straight away."
     }
@@ -249,7 +270,7 @@ struct AskSheet: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
             Button {
-                onAsk(amount, category ?? .other, note.trimmingCharacters(in: .whitespacesAndNewlines), emergency)
+                onAsk(amount, category ?? .other, purpose.trimmingCharacters(in: .whitespacesAndNewlines), emergency)
                 dismiss()
             } label: {
                 Text(canAsk ? "Ask for \(amount.compact)" : "Ask for money")
@@ -261,52 +282,6 @@ struct AskSheet: View {
             .padding(.bottom, 8)
         }
         .background(Palette.paper)
-    }
-}
-
-/// Whole-dollar keypad, so an ask needs no keyboard at all.
-private struct Keypad: View {
-    @Binding var digits: String
-    var keyHeight: CGFloat = 52
-
-    private let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"]
-
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(spacing: 8), count: 3), spacing: 8) {
-            ForEach(keys, id: \.self) { key in
-                if key.isEmpty {
-                    Color.clear.frame(height: keyHeight)
-                } else {
-                    Button {
-                        withAnimation(.snappy(duration: 0.12)) { press(key) }
-                    } label: {
-                        Group {
-                            if key == "⌫" {
-                                Image(systemName: "delete.left").font(.system(size: 18, weight: .medium))
-                            } else {
-                                Text(key).font(Typo.mono(22))
-                            }
-                        }
-                        .foregroundStyle(Palette.ink)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: keyHeight)
-                        .background(Palette.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(Palette.border, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(key == "⌫" ? "Delete" : key)
-                }
-            }
-        }
-    }
-
-    private func press(_ key: String) {
-        if key == "⌫" {
-            digits = String(digits.dropLast())
-        } else if digits.count < 6 {
-            digits = digits == "0" ? key : digits + key
-        }
     }
 }
 

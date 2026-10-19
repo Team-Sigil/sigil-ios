@@ -31,7 +31,7 @@ enum Outcome: String, CaseIterable, Sendable {
         case .sentFull: "Sent"
         case .sentPartial: "Part sent"
         case .counterOffer: "Offered less"
-        case .askedProof: "Needs receipt"
+        case .askedProof: "Needs proof"
         case .askedGuardian: "Needs guardian"
         case .askedDependent: "Agent asked back"
         case .declined: "Declined"

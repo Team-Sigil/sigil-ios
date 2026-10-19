@@ -70,7 +70,7 @@ enum MockData {
                 runs past half the week's budget.
                 """
             ),
-            summary: "Min Thu can get up to $150 a week. Requests up to $60 go out on their own. Anything bigger comes to you first, and anything over $50 needs a receipt.",
+            summary: "Min Thu can get up to $150 a week. Requests up to $60 go out on their own. Anything bigger comes to you first, and anything over $50 needs proof of the price.",
             testScenarios: [
                 "If Min Thu asks for $25 of lab supplies, I would send it.",
                 "If Min Thu asks for $180 of textbooks, I would ask you first.",
@@ -108,9 +108,9 @@ enum MockData {
                 this, so explain every decision carefully.
                 """
             ),
-            summary: "Aung Kyaw has no scheduled allowance. He can ask for up to $120 a week, in requests of up to $40, and anything over $30 needs a receipt.",
+            summary: "Aung Kyaw has no scheduled allowance. He can ask for up to $120 a week, in requests of up to $40, and anything over $30 needs proof of the price.",
             testScenarios: [
-                "If Aung Kyaw asks for $35 of groceries, I would send it once he sends a receipt.",
+                "If Aung Kyaw asks for $35 of groceries, I would send it once he shows me what it costs.",
                 "If Aung Kyaw asks for $80 of tools, I would ask you first.",
                 "If Aung Kyaw asks for a $12 game pass, I would decline — gaming is blocked.",
             ]
@@ -200,7 +200,7 @@ enum MockData {
             ActivityItem(
                 outcome: .askedProof, title: "Winter jacket", dependentID: "mt", amount: Units(65),
                 category: .clothing,
-                reply: "Anything over $50 needs a receipt — take a photo in the app and I'll carry on.",
+                reply: "Anything over $50 needs proof of the price — show me the price tag in the app and I'll carry on.",
                 time: "40 min"
             ),
             ActivityItem(
