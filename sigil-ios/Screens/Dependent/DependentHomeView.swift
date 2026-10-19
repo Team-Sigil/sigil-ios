@@ -153,7 +153,7 @@ struct DependentHomeView: View {
                         .foregroundStyle(Palette.orangeInk)
                 }
             }
-            Text("You can't ask for money again until this one is cleared.")
+            Text("You can't ask for money again until the receipt has been checked and accepted.")
                 .font(Typo.body(13))
                 .foregroundStyle(Palette.orangeInk)
                 .lineSpacing(2)
