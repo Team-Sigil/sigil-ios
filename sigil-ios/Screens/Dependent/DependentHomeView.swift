@@ -16,6 +16,9 @@ struct DependentHomeView: View {
         Screen(spacing: 20) {
             header
             balanceCard
+            if liveRequest?.owesReceipt == true {
+                owedReceiptCard
+            }
             askSection
             policy
             recent
@@ -130,6 +133,34 @@ struct DependentHomeView: View {
                 }
             }
         }
+    }
+
+    /// While a receipt is owed the gateway refuses a new request (409
+    /// PROOF_OUTSTANDING), so the app says so plainly instead of letting them ask.
+    private var owedReceiptCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Palette.orangeOnFill)
+                    .frame(width: 44, height: 44)
+                    .background(Palette.orange, in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Send your receipt").font(Typo.body(16, .bold))
+                    Text("For the \(liveRequest?.amount.compact ?? "") already sent")
+                        .font(Typo.body(13))
+                        .foregroundStyle(Palette.orangeInk)
+                }
+            }
+            Text("You can't ask for money again until this one is cleared.")
+                .font(Typo.body(13))
+                .foregroundStyle(Palette.orangeInk)
+                .lineSpacing(2)
+        }
+        .foregroundStyle(Palette.orangeDeep)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle(fill: Palette.orangeSoft, stroke: Palette.orangeBorder)
     }
 
     /// One tap to repeat something routine, from what was actually sent before.

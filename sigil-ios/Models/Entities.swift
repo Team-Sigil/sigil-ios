@@ -169,6 +169,18 @@ struct GuardianQuestion: Identifiable, Sendable {
     let proofs: [Proof]
 }
 
+/// A receipt owed for money already sent (`GET /proof-obligations`). While one is open
+/// the dependent cannot ask for more: `POST /requests` answers `409 PROOF_OUTSTANDING`.
+struct ProofObligation: Identifiable, Sendable {
+    let id: String
+    let requestID: String
+    let transferID: String
+    let amount: Units
+    let title: String
+    let sentAgo: String
+}
+
+
 struct Notification: Identifiable, Sendable {
     let id: String
     /// Nil when the notification is about the guardian as a whole, such as the

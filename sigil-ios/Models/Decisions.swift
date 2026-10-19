@@ -175,6 +175,36 @@ enum ProofKind: String, Sendable {
     case receipt, quote, photo
 }
 
+/// How a receipt reaches the gateway. There is no gallery picker and screenshots are not
+/// accepted, so an online order is shown by the PDF the shop sent.
+enum ProofSource: String, Sendable, CaseIterable, Identifiable {
+    case camera
+    case document
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .camera: "Take a photo"
+        case .document: "Upload the PDF"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .camera: "For a paper receipt, in the app's own camera"
+        case .document: "For an online order, the PDF the shop emailed you"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .camera: "camera.fill"
+        case .document: "doc.text.fill"
+        }
+    }
+}
+
 struct Proof: Identifiable, Sendable {
     let id: String
     let kind: ProofKind
