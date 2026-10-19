@@ -1,16 +1,24 @@
 import SwiftUI
 
 struct DependentPolicyView: View {
-    private let me = MockData.dependents[0]
-    private var policy: Policy { MockData.policy(for: me.id) }
-    private var limits: PolicyBody { policy.body }
-    private var budget: Budget { MockData.budget(for: me.id) }
-    private var guardianName: String { MockData.guardian.shortName }
+    @Environment(Store.self) private var store
+
+    private var me: Dependent? { store.me }
+    private var policy: Policy? { me.flatMap { store.policy(for: $0.familyID) } }
+    private var limits: PolicyBody { policy?.body ?? Self.empty }
+    private var budget: Budget? { me.flatMap { store.budget(for: $0.familyID) } }
+    private var guardianName: String { store.guardianName }
+
+    /// Nothing is in force until the guardian signs a policy; the screen shows zeros
+    /// rather than inventing limits.
+    private static let empty = PolicyBody(
+        weeklyCap: .zero, maxPerRequest: .zero, blockedCategories: [],
+        proofThreshold: .zero, reviewThreshold: nil, allowance: nil, guidance: ""
+    )
 
     var body: some View {
         Screen(spacing: 22) {
-            PageTitle(title: "Your policy",
-                      subtitle: "Set by \(guardianName) · version \(policy.version) · \(policy.activatedAt)")
+            PageTitle(title: "Your policy", subtitle: subtitle)
 
             allowanceCard
 
@@ -44,16 +52,12 @@ struct DependentPolicyView: View {
 
             emergencyCard
 
-            VStack(spacing: 10) {
-                Text("Need different limits?")
-                    .font(Typo.body(14))
-                    .foregroundStyle(Palette.textSecondary)
-                Button("Ask \(guardianName) to change my policy") {}
-                    .buttonStyle(SecondaryButtonStyle())
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 4)
         }
+    }
+
+    private var subtitle: String {
+        guard let policy else { return "Not set yet" }
+        return "Set by \(guardianName) · version \(policy.version) · \(policy.activatedAt)"
     }
 
     private var allowanceCard: some View {
@@ -64,10 +68,10 @@ struct DependentPolicyView: View {
                     Text(limits.weeklyCap.compact).font(Typo.mono(36)).tracking(-1)
                 }
                 Spacer()
-                Text(budget.resetText).font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
+                Text(budget?.resetText ?? "").font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
             }
-            ProgressBar(fraction: budget.fraction, fill: Palette.accent)
-            Text("\(budget.spent.compact) used · \(budget.remaining.compact) left")
+            ProgressBar(fraction: budget?.fraction ?? 0, fill: Palette.accent)
+            Text("\((budget?.spent ?? .zero).compact) used · \((budget?.remaining ?? .zero).compact) left")
                 .font(Typo.mono(12, .regular))
                 .foregroundStyle(Palette.textSecondary)
         }

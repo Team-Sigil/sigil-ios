@@ -3,19 +3,30 @@ import SwiftUI
 struct GuardianDependentsView: View {
     @Binding var tab: GuardianTab
     @Environment(AppSession.self) private var session
+    @Environment(Store.self) private var store
+    @State private var addingDependent = false
+    @State private var funding = false
 
     var body: some View {
         Screen(spacing: 16) {
             HStack(alignment: .top) {
-                PageTitle(title: "Dependents",
-                          subtitle: "\(MockData.dependents.count) dependents sharing one reservoir")
+                PageTitle(title: "Dependents", subtitle: subtitle)
                 Spacer()
-                CircleIconButton(systemImage: "plus", label: "Add dependent", filled: true)
+                CircleIconButton(systemImage: "plus", label: "Add dependent", filled: true) {
+                    addingDependent = true
+                }
             }
             .padding(.bottom, 4)
 
-            ForEach(MockData.dependents) { dependent in
-                DependentCard(dependent: dependent, frozen: session.isFrozen(dependent.familyID)) {
+            ForEach(store.dependents) { dependent in
+                DependentCard(
+                    onTopUp: { funding = true },
+                    dependent: dependent,
+                    frozen: session.isFrozen(dependent.familyID),
+                    budget: store.budget(for: dependent.familyID),
+                    plan: store.planText(for: dependent.familyID),
+                    policyVersion: store.policy(for: dependent.familyID)?.version
+                ) {
                     session.selectedFamilyID = dependent.familyID
                     tab = .policies
                 }
@@ -23,6 +34,18 @@ struct GuardianDependentsView: View {
 
             inviteCard
         }
+        .sheet(isPresented: $addingDependent) {
+            NavigationStack { OnboardingView() }
+        }
+        .sheet(isPresented: $funding) { DelegationSheet() }
+    }
+
+    private var subtitle: String {
+        let count = store.dependents.count
+        if count == 0 { return "Nobody yet" }
+        return count == 1
+            ? "One dependent on your reservoir"
+            : "\(count) dependents sharing one reservoir"
     }
 
     private var inviteCard: some View {
@@ -42,8 +65,8 @@ struct GuardianDependentsView: View {
                     .foregroundStyle(Palette.textSecondary)
                     .lineSpacing(2)
             }
-            Button {} label: {
-                Text("Send invite link")
+            Button { addingDependent = true } label: {
+                Text("Add them")
                     .font(Typo.body(14, .semibold))
                     .foregroundStyle(Palette.paper)
                     .padding(.horizontal, 18)
@@ -62,12 +85,13 @@ struct GuardianDependentsView: View {
 }
 
 private struct DependentCard: View {
+    var onTopUp: () -> Void
     let dependent: Dependent
     let frozen: Bool
+    let budget: Budget?
+    let plan: String
+    let policyVersion: Int?
     var onEditPolicy: () -> Void
-
-    private var budget: Budget { MockData.budget(for: dependent.id) }
-    private var policy: Policy { MockData.policy(for: dependent.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -76,7 +100,7 @@ private struct DependentCard: View {
                        background: dependent.avatarBackground, foreground: dependent.avatarForeground, fontSize: 17)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(dependent.name).font(Typo.display(19)).tracking(-0.2)
-                    Text(MockData.planText(for: dependent.id)).font(Typo.body(13)).foregroundStyle(Palette.muted)
+                    Text(plan).font(Typo.body(13)).foregroundStyle(Palette.muted)
                 }
                 Spacer()
                 if frozen {
@@ -86,8 +110,15 @@ private struct DependentCard: View {
                         .padding(.horizontal, 10)
                         .frame(height: 26)
                         .background(Palette.orangeSoft, in: Capsule())
+                } else if let policyVersion {
+                    DotBadge(text: "v\(policyVersion)")
                 } else {
-                    DotBadge(text: "v\(policy.version)")
+                    Text("No policy")
+                        .font(Typo.body(12, .semibold))
+                        .foregroundStyle(Palette.muted)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Palette.graySoft, in: Capsule())
                 }
             }
 
@@ -95,10 +126,12 @@ private struct DependentCard: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("This week").font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
                     Spacer()
-                    Text("\(budget.spent.display) of \(budget.weeklyCap.compact)").font(Typo.mono(13))
+                    Text(budget.map { "\($0.spent.display) of \($0.weeklyCap.compact)" } ?? "—")
+                        .font(Typo.mono(13))
                 }
-                ProgressBar(fraction: budget.fraction)
-                Text(budget.resetText).font(Typo.body(12)).foregroundStyle(Palette.muted)
+                ProgressBar(fraction: budget?.fraction ?? 0)
+                Text(budget?.resetText ?? "No budget until a policy is signed")
+                    .font(Typo.body(12)).foregroundStyle(Palette.muted)
             }
 
             HStack(spacing: 8) {
@@ -108,9 +141,9 @@ private struct DependentCard: View {
             }
 
             HStack(spacing: 10) {
-                Button("Top up") {}
+                Button("Top up", action: onTopUp)
                     .buttonStyle(SecondaryButtonStyle())
-                Button("Edit policy", action: onEditPolicy)
+                Button(policyVersion == nil ? "Set policy" : "Edit policy", action: onEditPolicy)
                     .buttonStyle(PrimaryButtonStyle())
             }
         }
@@ -138,5 +171,8 @@ private struct DependentCard: View {
 }
 
 #Preview {
-    GuardianDependentsView(tab: .constant(.dependents)).environment(AppSession())
+    let session = AppSession()
+    GuardianDependentsView(tab: .constant(.dependents))
+        .environment(session)
+        .environment(Store(session: session))
 }

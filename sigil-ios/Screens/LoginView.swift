@@ -2,12 +2,9 @@ import SwiftUI
 
 struct LoginView: View {
     @Environment(AppSession.self) private var session
+    @Environment(Store.self) private var store
     @State private var role: Role = .guardian
-    @State private var email = ""
-    @State private var password = ""
-    @FocusState private var focused: Field?
-
-    private enum Field { case email, password }
+    @State private var signingIn = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,62 +54,60 @@ struct LoginView: View {
         .padding(.bottom, 40)
     }
 
+    /// The card at the bottom. There is nothing to type: Phantom holds the key, tells the
+    /// app which wallet is connected, and the gateway decides from that wallet whether
+    /// this is a guardian or a dependent.
     private var form: some View {
         VStack(spacing: 18) {
-            SegmentedPill(
-                options: [(Role.guardian, "Guardian"), (Role.dependent, "Dependent")],
-                selection: $role
-            )
-
-            VStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    fieldLabel("Email")
-                    TextField("you@example.com", text: $email)
-                        .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.next)
-                        .focused($focused, equals: .email)
-                        .onSubmit { focused = .password }
-                        .modifier(InputFieldStyle())
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        fieldLabel("Password")
-                        Spacer()
-                        Button("Forgot password?") {}
-                            .font(Typo.body(13, .medium))
-                            .foregroundStyle(Palette.ink)
-                    }
-                    SecureField("Your password", text: $password)
-                        .textContentType(.password)
-                        .submitLabel(.go)
-                        .focused($focused, equals: .password)
-                        .onSubmit { session.signIn(as: role) }
-                        .modifier(InputFieldStyle())
-                }
+            // Only ever shown with `-localWallet`, where there is no Phantom to connect to.
+            if LocalWallet.isEnabled {
+                SegmentedPill(
+                    options: [(Role.guardian, "Guardian"), (Role.dependent, "Dependent")],
+                    selection: $role
+                )
             }
 
             Button {
-                session.signIn(as: role)
+                signIn()
             } label: {
                 HStack(spacing: 8) {
-                    Text("Sign in as \(role == .guardian ? "guardian" : "dependent")")
-                    Image(systemName: "arrow.right").font(.system(size: 15, weight: .semibold))
+                    if signingIn {
+                        ProgressView().controlSize(.small).tint(.white)
+                    }
+                    Text(buttonTitle)
+                    if !signingIn {
+                        Image(systemName: "arrow.right").font(.system(size: 15, weight: .semibold))
+                    }
                 }
             }
             .buttonStyle(PrimaryButtonStyle(height: 54))
             .contentTransition(.opacity)
+            .disabled(signingIn)
 
-            HStack(spacing: 4) {
-                Text("New to Sigil?").foregroundStyle(Palette.textSecondary)
-                Button("Create an account") {}
-                    .fontWeight(.semibold)
-                    .foregroundStyle(Palette.ink)
+            Text("No password. Your wallet signs you in, and whether you see the guardian or the dependent side follows from it.")
+                .font(Typo.body(14))
+                .foregroundStyle(Palette.textSecondary)
+                .multilineTextAlignment(.center)
+                .lineSpacing(2)
+
+            if let problem = session.signInProblem {
+                Text(problem)
+                    .font(Typo.body(13))
+                    .foregroundStyle(Palette.danger)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
-            .font(Typo.body(14))
-            .padding(.top, 4)
+
+            if !LocalWallet.isEnabled, !Phantom.shared.isAvailable {
+                Link(destination: URL(string: "https://phantom.app/download")!) {
+                    HStack(spacing: 4) {
+                        Text("Phantom isn't installed.").foregroundStyle(Palette.textSecondary)
+                        Text("Get it").fontWeight(.semibold).foregroundStyle(Palette.ink)
+                    }
+                    .font(Typo.body(14))
+                }
+                .padding(.top, 4)
+            }
         }
         .padding(.horizontal, 24)
         .padding(.top, 24)
@@ -125,25 +120,29 @@ struct LoginView: View {
         .foregroundStyle(Palette.ink)
     }
 
-    private func fieldLabel(_ text: String) -> some View {
-        Text(text)
-            .font(Typo.body(13, .medium))
-            .foregroundStyle(Palette.textSecondary)
+    private var buttonTitle: String {
+        if signingIn { return "Waiting for your wallet\u{2026}" }
+        if LocalWallet.isEnabled {
+            return "Sign in as \(role == .guardian ? "guardian" : "dependent")"
+        }
+        return "Connect Phantom"
     }
-}
 
-private struct InputFieldStyle: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .font(Typo.body(16))
-            .foregroundStyle(Palette.ink)
-            .padding(.horizontal, 14)
-            .frame(height: 50)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Palette.borderStrong, lineWidth: 1)
-            )
+    /// Signing in is a wallet signature over the gateway's own text — there is no
+    /// password in Sigil (SEC-09), and the role comes back from the gateway rather than
+    /// being chosen here: a wallet registered as someone's dependent is a dependent.
+    private func signIn() {
+        guard !signingIn else { return }
+        Task {
+            signingIn = true
+            defer { signingIn = false }
+            if LocalWallet.isEnabled {
+                await session.signIn(as: role)
+            } else {
+                await session.signIn()
+            }
+            if session.signedIn { await store.load() }
+        }
     }
 }
 
@@ -184,5 +183,8 @@ private struct LoginOrbit: View {
 }
 
 #Preview {
-    LoginView().environment(AppSession())
+    let session = AppSession()
+    LoginView()
+        .environment(session)
+        .environment(Store(session: session))
 }

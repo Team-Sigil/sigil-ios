@@ -2,33 +2,37 @@ import SwiftUI
 
 struct DependentHomeView: View {
     @Binding var tab: DependentTab
+    @Environment(Store.self) private var store
     @State private var asking = false
     @State private var liveRequest: LiveRequest?
-    @State private var repeatAsk: ActivityItem?
 
     /// The signed-in dependent. Only ever their own data (SEC-10).
-    private let me = MockData.dependents[0]
-    private var budget: Budget { MockData.budget(for: me.id) }
-    private var limits: PolicyBody { MockData.policy(for: me.id).body }
-    private var guardianName: String { MockData.guardian.shortName }
+    private var me: Dependent? { store.me }
+    private var budget: Budget? { me.flatMap { store.budget(for: $0.familyID) } }
+    private var limits: PolicyBody? { me.flatMap { store.policy(for: $0.familyID)?.body } }
+    private var guardianName: String { store.guardianName }
 
     var body: some View {
         Screen(spacing: 20) {
             header
             balanceCard
-            if liveRequest?.owesReceipt == true {
-                owedReceiptCard
-            }
+            OwedReceiptsCard()
             askSection
             policy
             recent
         }
         .sheet(isPresented: $asking) {
-            AskSheet(dependent: me) { amount, category, note, emergency in
-                startRequest(amount: amount, category: category, note: note, emergency: emergency)
+            if let me {
+                AskSheet(
+                    dependent: me,
+                    limits: limits,
+                    budget: budget
+                ) { amount, category, note, emergency in
+                    startRequest(amount: amount, category: category, note: note, emergency: emergency)
+                }
             }
         }
-        .onAppear(perform: applyLaunchArguments)
+        .task { applyLaunchArguments() }
     }
 
     /// Lets the simulator open the ask sheet, or start an ask of a given size, so
@@ -51,19 +55,19 @@ struct DependentHomeView: View {
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Hi, \(me.name)")
+                Text("Hi, \(me?.name ?? "there")")
                     .font(Typo.display(28))
                     .tracking(-0.6)
                     .accessibilityAddTraits(.isHeader)
-                Text("Funded by \(guardianName) · \(MockData.planText(for: me.id, short: true))")
+                Text("Funded by \(guardianName) · \(planText)")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.muted)
             }
             Spacer()
-            CircleIconButton(systemImage: "bell", label: "Notifications")
             Button { tab = .profile } label: {
-                Avatar(initials: me.initials, background: me.avatarBackground,
-                       foreground: me.avatarForeground, fontSize: 14)
+                Avatar(initials: me?.initials ?? "?",
+                       background: me?.avatarBackground ?? Palette.blueSoft,
+                       foreground: me?.avatarForeground ?? Palette.blueInk, fontSize: 14)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Profile")
@@ -75,21 +79,21 @@ struct DependentHomeView: View {
             HStack {
                 Text("Left this week").font(Typo.body(14, .semibold))
                 Spacer()
-                Text(budget.resetText)
+                Text(budget?.resetText ?? "")
                     .font(Typo.mono(12, .regular))
                     .foregroundStyle(.white.opacity(0.86))
             }
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(budget.remaining.display)
+                Text((budget?.remaining ?? .zero).display)
                     .font(Typo.mono(48))
                     .tracking(-1.9)
-                Text("of \(budget.weeklyCap.compact)")
+                Text("of \((budget?.weeklyCap ?? .zero).compact)")
                     .font(Typo.body(14))
                     .foregroundStyle(.white.opacity(0.86))
             }
             VStack(alignment: .leading, spacing: 8) {
-                ProgressBar(fraction: 1 - budget.fraction, fill: .white, track: .white.opacity(0.24))
-                Text("\(budget.spent.compact) spent this week")
+                ProgressBar(fraction: 1 - (budget?.fraction ?? 0), fill: .white, track: .white.opacity(0.24))
+                Text("\((budget?.spent ?? .zero).compact) spent this week")
                     .font(Typo.body(12))
                     .foregroundStyle(.white.opacity(0.86))
             }
@@ -135,37 +139,13 @@ struct DependentHomeView: View {
         }
     }
 
-    /// While a receipt is owed the gateway refuses a new request (409
-    /// PROOF_OUTSTANDING), so the app says so plainly instead of letting them ask.
-    private var owedReceiptCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Palette.orangeOnFill)
-                    .frame(width: 44, height: 44)
-                    .background(Palette.orange, in: Circle())
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Send your receipt").font(Typo.body(16, .bold))
-                    Text("For the \(liveRequest?.amount.compact ?? "") already sent")
-                        .font(Typo.body(13))
-                        .foregroundStyle(Palette.orangeInk)
-                }
-            }
-            Text("You can't ask for money again until the receipt has been checked and accepted.")
-                .font(Typo.body(13))
-                .foregroundStyle(Palette.orangeInk)
-                .lineSpacing(2)
-        }
-        .foregroundStyle(Palette.orangeDeep)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle(fill: Palette.orangeSoft, stroke: Palette.orangeBorder)
+    private var planText: String {
+        me.map { store.planText(for: $0.familyID, short: true) } ?? "No policy yet"
     }
 
     /// One tap to repeat something routine, from what was actually sent before.
     private var repeatable: [ActivityItem] {
-        MockData.history(for: me.id)
+        store.history(forFamily: me?.familyID)
             .filter { $0.outcome == .sentFull && $0.amount > .zero }
             .prefix(3)
             .map { $0 }
@@ -205,14 +185,13 @@ struct DependentHomeView: View {
     /// The agent run is synchronous and slow, so the card appears straight away in
     /// its waiting state and settles when the answer arrives.
     private func startRequest(amount: Units, category: Category, note: String, emergency: Bool) {
-        let request = LiveRequest(amount: amount, category: category, note: note,
-                                  emergency: emergency, dependentID: me.id)
+        guard let me else { return }
+        let request = LiveRequest(
+            amount: amount, category: category, note: note,
+            emergency: emergency, familyID: me.familyID, store: store
+        )
         withAnimation(.snappy) { liveRequest = request }
-
-        Task {
-            try? await Task.sleep(for: .milliseconds(1_400))
-            withAnimation(.snappy) { request.settle() }
-        }
+        Task { await request.send() }
     }
 
     private var policy: some View {
@@ -221,10 +200,12 @@ struct DependentHomeView: View {
                 Text("Set by \(guardianName)").font(Typo.body(13)).foregroundStyle(Palette.muted)
             }
             ListCard {
-                InfoRow(title: "Weekly limit", value: limits.weeklyCap.compact)
-                InfoRow(title: "Per request, auto-sent", value: "up to \(limits.maxPerRequest.compact)")
-                InfoRow(title: "Proof needed over", value: limits.proofThreshold.compact)
-                InfoRow(title: "Blocked", value: limits.blockedCategories.map(\.label).joined(separator: " · "), mono: false)
+                InfoRow(title: "Weekly limit", value: (limits?.weeklyCap ?? .zero).compact)
+                InfoRow(title: "Per request, auto-sent",
+                        value: "up to \((limits?.maxPerRequest ?? .zero).compact)")
+                InfoRow(title: "Proof needed over", value: (limits?.proofThreshold ?? .zero).compact)
+                InfoRow(title: "Blocked",
+                        value: blockedText, mono: false)
             }
             .onTapGesture { tab = .policy }
         }
@@ -236,11 +217,16 @@ struct DependentHomeView: View {
                 LinkButton(title: "See all") { tab = .requests }
             }
             ListCard {
-                ForEach(MockData.history(for: me.id).prefix(3)) { item in
+                ForEach(store.history(forFamily: me?.familyID).prefix(3)) { item in
                     requestRow(item)
                 }
             }
         }
+    }
+
+    private var blockedText: String {
+        let blocked = limits?.blockedCategories ?? []
+        return blocked.isEmpty ? "Nothing" : blocked.map(\.label).joined(separator: " · ")
     }
 
     private func requestRow(_ item: ActivityItem) -> some View {
@@ -260,5 +246,8 @@ struct DependentHomeView: View {
 }
 
 #Preview {
+    let session = AppSession()
     DependentHomeView(tab: .constant(.home))
+        .environment(session)
+        .environment(Store(session: session))
 }

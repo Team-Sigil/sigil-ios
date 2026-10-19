@@ -20,6 +20,10 @@ enum Outcome: String, CaseIterable, Sendable {
     case blocked
     case safeFallback = "safe_fallback"
     case transferPending = "transfer_pending"
+    // A receipt check, not a request: the gateway settled an owed receipt with the proof
+    // that was sent, or refused it. No money moves either way.
+    case receiptAccepted = "receipt_accepted"
+    case receiptRejected = "receipt_rejected"
     case unknown = "__unknown"
 
     init(apiValue: String) {
@@ -40,6 +44,8 @@ enum Outcome: String, CaseIterable, Sendable {
         case .blocked: "Blocked"
         case .safeFallback: "Held back"
         case .transferPending: "On its way"
+        case .receiptAccepted: "Receipt accepted"
+        case .receiptRejected: "Receipt not accepted"
         case .unknown: "Updated"
         }
     }
@@ -64,6 +70,12 @@ enum Outcome: String, CaseIterable, Sendable {
 
     var isStopped: Bool {
         self == .declined || self == .blocked || self == .outOfScope || self == .safeFallback
+    }
+
+    /// The gateway's answer to a receipt sent for money already paid out. It settles an
+    /// obligation or refuses the proof; it never moves money and never asks the guardian.
+    var isReceiptCheck: Bool {
+        self == .receiptAccepted || self == .receiptRejected
     }
 }
 
@@ -150,9 +162,21 @@ enum ProofFlag: String, CaseIterable, Sendable {
     case oldCapture = "old_capture"
     case edited
     case cameraSigned = "camera_signed"
+    /// A PDF receipt whose shop signature the gateway verified. Without this a PDF counts
+    /// for nothing, so it is the one flag that makes a document evidence.
+    case issuerSigned = "issuer_signed"
+    /// A PDF whose signature did not verify: stored, never shown to the agent, settles
+    /// nothing.
+    case uncheckedDocument = "unchecked_document"
+    case aiGenerated = "ai_generated"
+    case aiSuspected = "ai_suspected"
+    case rephotographedScreen = "rephotographed_screen"
+    /// A flag this version doesn't know. The gateway may add more, and something flagged
+    /// should never read as unflagged.
+    case unknown = "__unknown"
 
     init(apiValue: String) {
-        self = ProofFlag(rawValue: apiValue) ?? .edited
+        self = ProofFlag(rawValue: apiValue) ?? .unknown
     }
 
     var label: String {
@@ -164,11 +188,17 @@ enum ProofFlag: String, CaseIterable, Sendable {
         case .oldCapture: "Taken over 30 days ago"
         case .edited: "Edited after it was taken"
         case .cameraSigned: "Taken in the app"
+        case .issuerSigned: "Signed by the shop"
+        case .uncheckedDocument: "Not signed by the shop"
+        case .aiGenerated: "Made by AI"
+        case .aiSuspected: "Might be made by AI"
+        case .rephotographedScreen: "A photo of a screen"
+        case .unknown: "Flagged by the checks"
         }
     }
 
-    /// Only a verified in-app capture is reassuring; the rest are cautions.
-    var isReassuring: Bool { self == .cameraSigned }
+    /// Only a verified capture or a shop-signed PDF is reassuring; the rest are cautions.
+    var isReassuring: Bool { self == .cameraSigned || self == .issuerSigned }
 }
 
 enum ProofKind: String, Sendable {

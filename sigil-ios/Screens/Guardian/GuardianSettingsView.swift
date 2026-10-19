@@ -2,49 +2,40 @@ import SwiftUI
 
 struct GuardianSettingsView: View {
     @Environment(AppSession.self) private var session
-    @State private var notifyEvery = false
-    @State private var notifyHeld = true
-    @State private var faceIDLogin = true
+    @Environment(Store.self) private var store
     @State private var confirmingFreeze = false
+    @State private var funding = false
 
     var body: some View {
         Screen(spacing: 22) {
             PageTitle(title: "Settings")
 
-            Button {} label: {
-                HStack(spacing: 14) {
-                    Avatar(initials: MockData.guardian.initials, size: 56, background: Palette.ink,
-                           foreground: Palette.paper, fontSize: 18, weight: .semibold)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(MockData.guardian.name).font(Typo.display(19))
-                        Text("\(MockData.guardian.wallet) · Guardian").font(Typo.mono(13, .regular)).foregroundStyle(Palette.muted)
-                    }
-                    Spacer()
-                    Chevron()
+            HStack(spacing: 14) {
+                Avatar(initials: store.guardian.initials, size: 56, background: Palette.ink,
+                       foreground: Palette.paper, fontSize: 18, weight: .semibold)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(store.guardian.name).font(Typo.display(19))
+                    Text("\(short(store.guardian.wallet)) · Guardian")
+                        .font(Typo.mono(13, .regular)).foregroundStyle(Palette.muted)
                 }
-                .foregroundStyle(Palette.ink)
-                .cardStyle()
+                Spacer()
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(Palette.ink)
+            .cardStyle()
 
             LabeledSection(title: "Reservoir") {
                 ListCard {
-                    Button {} label: {
-                        HStack(spacing: 10) {
-                            Text("Wallet").font(Typo.body(15))
-                            Spacer()
-                            DotBadge(text: "Connected", height: 26)
-                            Chevron()
-                        }
-                        .frame(minHeight: 52)
-                        .contentShape(Rectangle())
+                    HStack(spacing: 10) {
+                        Text("Wallet").font(Typo.body(15))
+                        Spacer()
+                        DotBadge(text: "Connected", height: 26)
                     }
-                    .buttonStyle(.plain)
-                    ValueRow(title: MockData.guardian.wallet, value: "Devnet", mono: true)
-                    ValueRow(title: "Token account", value: MockData.guardianTokenAccount, mono: true)
+                    .frame(minHeight: 52)
+                    ValueRow(title: short(store.guardian.wallet), value: "Devnet", mono: true)
+                    ValueRow(title: "Token account", value: short(store.guardianTokenAccount), mono: true)
                     ValueRow(title: "Delegated, still unspent",
-                             value: MockData.reservoirRemaining?.compact ?? "Can't read the chain", mono: true)
-                    Button {} label: {
+                             value: store.reservoirRemaining?.compact ?? "Can't read the chain", mono: true)
+                    Button { funding = true } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "plus").font(.system(size: 15, weight: .bold))
                             Text("Top up the reservoir").font(Typo.body(15, .semibold))
@@ -56,7 +47,7 @@ struct GuardianSettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Text("One reservoir covers all \(MockData.dependents.count) dependents. The money stays in your wallet, and the agent only holds a spending permission you can revoke at any time.")
+                Text(reservoirNote)
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.muted)
                     .lineSpacing(2)
@@ -83,36 +74,22 @@ struct GuardianSettingsView: View {
                 }
             }
 
-            LabeledSection(title: "Notify me about") {
-                ListCard {
-                    ToggleRow(title: "Every transfer", isOn: $notifyEvery)
-                    ToggleRow(title: "Requests held for me", isOn: $notifyHeld)
-                    HStack {
-                        Text("Auditor flags").font(Typo.body(15))
-                        Spacer()
-                        Text("Always on").font(Typo.body(13)).foregroundStyle(Palette.muted)
-                    }
-                    .frame(minHeight: 52)
-                }
-            }
-
-            LabeledSection(title: "Security") {
-                ListCard {
-                    ToggleRow(title: "Sign in with Face ID", isOn: $faceIDLogin)
-                    ValueRow(title: "Change password")
-                }
-            }
-
-            LabeledSection(title: "Help") {
-                ListCard {
-                    ValueRow(title: "Help centre")
-                    ValueRow(title: "Terms & privacy")
-                }
-            }
-
             SignOutButton { session.signOut() }
         }
         .sheet(isPresented: $confirmingFreeze) { FreezeSheet() }
+        .sheet(isPresented: $funding) { DelegationSheet() }
+    }
+
+    private var reservoirNote: String {
+        let count = store.dependents.count
+        let who = count == 1 ? "your dependent" : "all \(count) dependents"
+        return "One reservoir covers \(who). The money stays in your wallet, and the agent only holds a spending permission you can revoke at any time."
+    }
+
+    /// Addresses are 44 characters; rows show the ends, as every other screen does.
+    private func short(_ address: String) -> String {
+        guard address.count > 12 else { return address }
+        return "\(address.prefix(4))…\(address.suffix(4))"
     }
 }
 
@@ -133,5 +110,8 @@ struct SignOutButton: View {
 }
 
 #Preview {
-    GuardianSettingsView().environment(AppSession())
+    let session = AppSession()
+    GuardianSettingsView()
+        .environment(session)
+        .environment(Store(session: session))
 }

@@ -5,6 +5,7 @@ enum DependentTab: Hashable {
 }
 
 struct DependentTabView: View {
+    @Environment(Store.self) private var store
     @State private var tab: DependentTab = .home
 
     var body: some View {
@@ -24,9 +25,16 @@ struct DependentTabView: View {
         }
         .tint(Palette.ink)
         .preferredColorScheme(.light)
+        .task {
+            await store.load()
+        }
+        .onDisappear { store.stopListening() }
     }
 }
 
 #Preview {
-    DependentTabView().environment(AppSession())
+    let session = AppSession()
+    DependentTabView()
+        .environment(session)
+        .environment(Store(session: session))
 }

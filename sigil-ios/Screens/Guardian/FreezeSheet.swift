@@ -4,8 +4,18 @@ import SwiftUI
 /// freeze and signs once for each. "Freeze everyone" is not one switch.
 struct FreezeSheet: View {
     @Environment(AppSession.self) private var session
+    @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var signing: Dependent?
+    @State private var signing: FreezeIntent?
+
+    /// A freeze the guardian has chosen but not yet signed. The nonce is taken first, so
+    /// the sheet can show the exact text the wallet will sign.
+    private struct FreezeIntent: Identifiable {
+        let dependent: Dependent
+        let frozen: Bool
+        let nonce: String
+        var id: String { "\(dependent.familyID)-\(frozen)" }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -21,7 +31,7 @@ struct FreezeSheet: View {
             }
 
             ListCard {
-                ForEach(MockData.dependents) { dependent in
+                ForEach(store.dependents) { dependent in
                     row(dependent)
                 }
             }
@@ -37,24 +47,26 @@ struct FreezeSheet: View {
         .foregroundStyle(Palette.ink)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .sheet(item: $signing) { dependent in
+        .sheet(item: $signing) { intent in
             SignatureSheet(
-                title: session.isFrozen(dependent.familyID)
-                    ? "Lift \(dependent.name)'s freeze"
-                    : "Freeze \(dependent.name)",
-                summary: session.isFrozen(dependent.familyID)
-                    ? "The agent can send to \(dependent.name) again, inside the limits you signed."
-                    : "Nothing reaches \(dependent.name) until you unfreeze. Your other dependents are unaffected.",
+                title: intent.frozen
+                    ? "Freeze \(intent.dependent.name)"
+                    : "Lift \(intent.dependent.name)'s freeze",
+                summary: intent.frozen
+                    ? "Nothing reaches \(intent.dependent.name) until you unfreeze. Your other dependents are unaffected."
+                    : "The agent can send to \(intent.dependent.name) again, inside the limits you signed.",
                 message: [
                     "FinGuard:freeze",
-                    "family:\(dependent.familyID)",
-                    "frozen:\(session.isFrozen(dependent.familyID) ? "false" : "true")",
-                    "nonce:\(MockData.nonce)",
+                    "family:\(intent.dependent.familyID)",
+                    "frozen:\(intent.frozen)",
+                    "nonce:\(intent.nonce)",
                 ],
-                confirmTitle: session.isFrozen(dependent.familyID) ? "Sign and unfreeze" : "Sign and freeze"
+                confirmTitle: intent.frozen ? "Sign and freeze" : "Sign and unfreeze"
             ) {
-                withAnimation(.snappy) {
-                    session.setFrozen(!session.isFrozen(dependent.familyID), familyID: dependent.familyID)
+                Task {
+                    _ = await store.setFrozen(
+                        intent.frozen, familyID: intent.dependent.familyID, nonce: intent.nonce
+                    )
                 }
             }
         }
@@ -74,34 +86,29 @@ struct FreezeSheet: View {
                     .foregroundStyle(frozen ? Palette.orangeInk : Palette.muted)
             }
             Spacer()
-            Button(frozen ? "Unfreeze" : "Freeze") { signing = dependent }
+            Button(frozen ? "Unfreeze" : "Freeze") { prepare(dependent, frozen: !frozen) }
                 .font(Typo.body(14, .semibold))
                 .foregroundStyle(frozen ? Palette.accent : Palette.danger)
                 .buttonStyle(.plain)
         }
         .frame(minHeight: 60)
     }
-}
 
-/// `sheet(item:)` needs an identifiable selection; Dependent already is one.
-private extension View {
-    func sheet<Item: Identifiable, Content: View>(
-        item: Binding<Item?>,
-        @ViewBuilder content: @escaping (Item) -> Content
-    ) -> some View {
-        sheet(isPresented: Binding(
-            get: { item.wrappedValue != nil },
-            set: { if !$0 { item.wrappedValue = nil } }
-        )) {
-            if let value = item.wrappedValue {
-                content(value)
-            }
+    private func prepare(_ dependent: Dependent, frozen: Bool) {
+        Task {
+            guard let nonce = await store.nonce(
+                purpose: "freeze", family: dependent.familyID
+            ) else { return }
+            signing = FreezeIntent(dependent: dependent, frozen: frozen, nonce: nonce)
         }
     }
 }
 
 #Preview {
+    let session = AppSession()
     Color.white.sheet(isPresented: .constant(true)) {
-        FreezeSheet().environment(AppSession())
+        FreezeSheet()
+            .environment(session)
+            .environment(Store(session: session))
     }
 }
