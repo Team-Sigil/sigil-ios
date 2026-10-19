@@ -6,7 +6,16 @@ import Foundation
 /// dependent names the family in `X-Family-Id`; without it the gateway answers
 /// `400 FAMILY_REQUIRED`.
 struct SigilAPI {
+    /// The gateway.
     var baseURL = URL(string: "https://api.iden.casa")!
+
+    /// The domain the gateway signs into its text ("iden.casa wants you to sign in…").
+    ///
+    /// Phantom compares the first line of a sign-in message with the `app_url` it was
+    /// given and shows a domain-mismatch warning if they differ, so the deeplink must use
+    /// `https://iden.casa` — not the API host, and not anything else.
+    static let signInDomain = "iden.casa"
+    static let appURL = URL(string: "https://iden.casa")!
     var token: String?
     /// The family guardian calls are about, when there is more than one dependent.
     var familyID: String?
@@ -74,6 +83,73 @@ struct SigilAPI {
         var body: [String: Any] = ["message": message, "emergency_claimed": emergency]
         if let amount { body["amount_requested"] = amount.raw }
         return try await send("requests", method: "POST", body: body, timeout: Self.agentTimeout)
+    }
+
+    func history() async throws -> HistoryDTO {
+        try await send("history")
+    }
+
+    // MARK: Writing
+
+    func registerFamily(
+        dependentWallet: String,
+        dependentTokenAccount: String,
+        guardianTokenAccount: String,
+        dependentName: String?,
+        nonce: String,
+        signature: String
+    ) async throws -> RegisteredFamilyDTO {
+        var body: [String: Any] = [
+            "dependent_wallet": dependentWallet,
+            "dependent_token_account": dependentTokenAccount,
+            "guardian_token_account": guardianTokenAccount,
+            "nonce": nonce,
+            "registration_signature_b58": signature,
+        ]
+        if let dependentName, !dependentName.isEmpty { body["dependent_name"] = dependentName }
+        return try await send("families", method: "POST", body: body)
+    }
+
+    func answerQuestion(
+        id: String, approve: Bool, amount: Units?, note: String?, nonce: String, signature: String
+    ) async throws -> AnsweredDTO {
+        var body: [String: Any] = [
+            "decision": approve ? "approve" : "deny",
+            "nonce": nonce,
+            "signature_b58": signature,
+        ]
+        if let amount, approve { body["amount_units"] = amount.raw }
+        if let note, !note.isEmpty { body["note"] = note }
+        return try await send(
+            "questions/\(id)/answer", method: "POST", body: body, timeout: Self.agentTimeout
+        )
+    }
+
+    func freeze(frozen: Bool, nonce: String, signature: String) async throws -> FreezeDTO {
+        try await send(
+            "freeze", method: "POST",
+            body: ["frozen": frozen, "nonce": nonce, "signature_b58": signature]
+        )
+    }
+
+    // MARK: Policy interview
+
+    /// No message starts the interview; each later call sends the guardian's own words.
+    /// The agent runs on every turn, so this needs the long timeout.
+    func interview(message: String? = nil) async throws -> InterviewDTO {
+        try await send(
+            "policy/interview", method: "POST",
+            body: message.map { ["message": $0] } ?? [:], timeout: Self.agentTimeout
+        )
+    }
+
+    func activateDraft(
+        id: String, nonce: String, signature: String
+    ) async throws -> ActivatedPolicyDTO {
+        try await send(
+            "policy/drafts/\(id)/activate", method: "POST",
+            body: ["nonce": nonce, "signature_b58": signature]
+        )
     }
 
     // MARK: Plumbing

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var session = AppSession()
+    @State private var store: Store?
 
     var body: some View {
         Group {
@@ -17,15 +18,24 @@ struct ContentView: View {
                 LoginView()
                     .transition(.opacity)
             case .guardian:
-                GuardianTabView()
-                    .transition(.opacity)
+                // A guardian with no dependents has nothing to show yet, so the first
+                // thing they do is register one.
+                if session.familyIDs.isEmpty && session.signedIn {
+                    OnboardingView()
+                        .transition(.opacity)
+                } else {
+                    GuardianTabView()
+                        .transition(.opacity)
+                }
             case .dependent:
                 DependentTabView()
                     .transition(.opacity)
             }
         }
         .environment(session)
+        .environment(store ?? Store(session: session))
         .task {
+            if store == nil { store = Store(session: session) }
             if let role = Role.fromLaunchArguments {
                 session.signInOffline(as: role)
             } else {
@@ -37,6 +47,7 @@ struct ContentView: View {
                     await session.signIn()
                 }
             }
+            if session.signedIn { await store?.load() }
         }
     }
 }
