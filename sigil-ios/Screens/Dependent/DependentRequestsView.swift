@@ -7,17 +7,16 @@ struct DependentRequestsView: View {
 
     @State private var filter: Filter = .all
 
-    @Environment(Store.self) private var store
-
-    private var guardianName: String { store.guardianName }
-    private var budget: Budget? { store.budget }
+    private let me = MockData.dependents[0]
+    private var guardianName: String { MockData.guardian.shortName }
+    private var budget: Budget { MockData.budget(for: me.id) }
 
     private var pending: ActivityItem? {
-        store.requests.first { $0.outcome.needsGuardian }
+        MockData.history(for: me.id).first { $0.outcome.needsGuardian }
     }
 
     private var history: [ActivityItem] {
-        store.requests.filter { item in
+        MockData.history(for: me.id).filter { item in
             switch filter {
             case .all: true
             case .waiting: item.outcome.needsGuardian || item.outcome == .askedProof
@@ -30,10 +29,7 @@ struct DependentRequestsView: View {
     var body: some View {
         Screen(spacing: 18) {
             HStack(alignment: .top) {
-                PageTitle(
-                    title: "Requests",
-                    subtitle: budget.map { "\($0.spent.compact) received this week" } ?? ""
-                )
+                PageTitle(title: "Requests", subtitle: "\(budget.spent.compact) received this week")
                 Spacer()
                 Button { tab = .home } label: {
                     HStack(spacing: 6) {
@@ -81,18 +77,17 @@ struct DependentRequestsView: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                TimelineStep(state: .done, lineColor: Palette.ink) {
-                    Text("You asked \(Text("· \(item.time)").font(Typo.mono(12, .regular)).foregroundStyle(Palette.muted))")
-                        .font(Typo.body(14, .semibold))
-                    Text(item.title)
-                }
-                TimelineStep(state: .done, lineColor: Palette.borderStrong) {
-                    Text("The agent checked your policy").font(Typo.body(14, .semibold))
-                    Text(item.reply)
+                ForEach(Array(MockData.pendingThread.enumerated()), id: \.element.id) { index, entry in
+                    TimelineStep(state: .done,
+                                 lineColor: index == 0 ? Palette.ink : Palette.borderStrong) {
+                        Text("\(entry.role == .dependent ? "You" : "Agent") \(Text("· \(entry.at)").font(Typo.mono(12, .regular)).foregroundStyle(Palette.muted))")
+                            .font(Typo.body(14, .semibold))
+                        Text(entry.text)
+                    }
                 }
                 TimelineStep(state: .current, lineColor: nil) {
                     Text("Waiting for \(guardianName)").font(Typo.body(14, .semibold))
-                    Text("It needs their wallet signature, so only they can decide it.")
+                    Text("It needs her wallet signature, so only she can decide it.")
                 }
             }
 
@@ -179,8 +174,5 @@ private struct TimelineStep<Content: View>: View {
 }
 
 #Preview {
-    let session = AppSession()
-    return DependentRequestsView(tab: .constant(.requests))
-        .environment(Store(session: session))
-        .environment(session)
+    DependentRequestsView(tab: .constant(.requests))
 }

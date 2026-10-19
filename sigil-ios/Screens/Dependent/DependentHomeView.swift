@@ -2,69 +2,75 @@ import SwiftUI
 
 struct DependentHomeView: View {
     @Binding var tab: DependentTab
-    @Environment(AppSession.self) private var session
-    @Environment(Store.self) private var store
-
     @State private var asking = false
-    @State private var live: LiveRequest?
+    @State private var liveRequest: LiveRequest?
+    @State private var repeatAsk: ActivityItem?
 
-    private var budget: Budget? { store.budget }
-    private var limits: PolicyBody? { store.policy?.body }
-    private var guardianName: String { store.guardianName }
+    /// The signed-in dependent. Only ever their own data (SEC-10).
+    private let me = MockData.dependents[0]
+    private var budget: Budget { MockData.budget(for: me.id) }
+    private var limits: PolicyBody { MockData.policy(for: me.id).body }
+    private var guardianName: String { MockData.guardian.shortName }
 
     var body: some View {
         Screen(spacing: 20) {
             header
-            if let budget {
-                balanceCard(budget)
-            } else {
-                noPolicyCard
-            }
-            if store.owesReceipt != nil || live?.owesReceipt == true {
+            balanceCard
+            if liveRequest?.owesReceipt == true {
                 owedReceiptCard
             }
             askSection
-            if let limits { policy(limits) }
+            policy
             recent
         }
-        .refreshable { await store.load() }
         .sheet(isPresented: $asking) {
-            if let limits, let budget {
-                AskSheet(policy: limits, budget: budget, guardianName: guardianName) {
-                    amount, category, note, emergency in
-                    startRequest(amount: amount, category: category, note: note, emergency: emergency)
-                }
+            AskSheet(dependent: me) { amount, category, note, emergency in
+                startRequest(amount: amount, category: category, note: note, emergency: emergency)
             }
         }
-        .task { await store.load() }
+        .onAppear(perform: applyLaunchArguments)
+    }
+
+    /// Lets the simulator open the ask sheet, or start an ask of a given size, so
+    /// each state can be checked without tapping. Only ever set by a launch argument:
+    /// `-openAsk`, or `-askAmount 65 -askCategory clothing`.
+    private func applyLaunchArguments() {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-openAsk") {
+            asking = true
+        }
+        guard let index = arguments.firstIndex(of: "-askAmount"),
+              let raw = arguments[safe: index + 1], let whole = Int64(raw) else { return }
+        let category = arguments.firstIndex(of: "-askCategory")
+            .flatMap { arguments[safe: $0 + 1] }
+            .flatMap(Category.init(rawValue:)) ?? .food
+        startRequest(amount: Units(whole), category: category,
+                     note: "", emergency: arguments.contains("-askEmergency"))
     }
 
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Hi\(store.selectedFamily?.dependentName.map { ", \($0)" } ?? "")")
+                Text("Hi, \(me.name)")
                     .font(Typo.display(28))
                     .tracking(-0.6)
                     .accessibilityAddTraits(.isHeader)
-                if let limits {
-                    Text("Weekly cap · \(limits.weeklyCap.compact)")
-                        .font(Typo.body(13))
-                        .foregroundStyle(Palette.muted)
-                }
+                Text("Funded by \(guardianName) · \(MockData.planText(for: me.id, short: true))")
+                    .font(Typo.body(13))
+                    .foregroundStyle(Palette.muted)
             }
             Spacer()
-            CircleIconButton(systemImage: "bell", label: "Notifications",
-                             badge: store.notifications.contains { !$0.isRead })
+            CircleIconButton(systemImage: "bell", label: "Notifications")
             Button { tab = .profile } label: {
-                Avatar(initials: Dependent.initials(of: store.selectedFamily?.dependentName ?? "?"),
-                       fontSize: 14)
+                Avatar(initials: me.initials, background: me.avatarBackground,
+                       foreground: me.avatarForeground, fontSize: 14)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Profile")
         }
     }
 
-    private func balanceCard(_ budget: Budget) -> some View {
+    private var balanceCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Left this week").font(Typo.body(14, .semibold))
@@ -100,29 +106,17 @@ struct DependentHomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    /// Nothing can be asked for until the guardian has signed a policy.
-    private var noPolicyCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Nothing set up yet")
-                .font(Typo.body(16, .bold))
-            Text("\(guardianName.capitalizedFirstLetter) hasn't signed a policy for you yet. Once they do, you'll see what you can ask for here.")
-                .font(Typo.body(14))
-                .foregroundStyle(Palette.textSecondary)
-                .lineSpacing(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .cardStyle(radius: 24)
-    }
-
     @ViewBuilder private var askSection: some View {
-        if let live {
-            LiveRequestCard(request: live, guardianName: guardianName) {
-                withAnimation(.snappy) { self.live = nil }
+        if let liveRequest {
+            LiveRequestCard(request: liveRequest) {
+                withAnimation(.snappy) { self.liveRequest = nil }
             }
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
-        } else if limits != nil {
+        } else {
             VStack(spacing: 12) {
-                Button { asking = true } label: {
+                Button {
+                    asking = true
+                } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "plus").font(.system(size: 17, weight: .bold))
                         Text("Ask for money").font(Typo.body(17, .semibold))
@@ -133,25 +127,18 @@ struct DependentHomeView: View {
                     .background(Palette.ink, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .disabled(store.owesReceipt != nil)
-                .opacity(store.owesReceipt != nil ? 0.4 : 1)
 
-                if let problem = store.problem {
-                    Text(problem)
-                        .font(Typo.body(13))
-                        .foregroundStyle(Palette.danger)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if !repeatable.isEmpty {
+                    repeatRow
                 }
             }
         }
     }
 
-    /// While a receipt is owed the gateway refuses a new request with
-    /// `409 PROOF_OUTSTANDING`, so the app says so plainly instead of letting them ask.
+    /// While a receipt is owed the gateway refuses a new request (409
+    /// PROOF_OUTSTANDING), so the app says so plainly instead of letting them ask.
     private var owedReceiptCard: some View {
-        let amount = store.owesReceipt.map { Units(raw: $0.amount) } ?? live?.amount
-
-        return VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Image(systemName: "doc.text")
                     .font(.system(size: 17, weight: .semibold))
@@ -161,11 +148,9 @@ struct DependentHomeView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Send your receipt").font(Typo.body(16, .bold))
-                    if let amount {
-                        Text("For the \(amount.compact) already sent")
-                            .font(Typo.body(13))
-                            .foregroundStyle(Palette.orangeInk)
-                    }
+                    Text("For the \(liveRequest?.amount.compact ?? "") already sent")
+                        .font(Typo.body(13))
+                        .foregroundStyle(Palette.orangeInk)
                 }
             }
             Text("You can't ask for money again until the receipt has been checked and accepted.")
@@ -178,7 +163,59 @@ struct DependentHomeView: View {
         .cardStyle(fill: Palette.orangeSoft, stroke: Palette.orangeBorder)
     }
 
-    private func policy(_ limits: PolicyBody) -> some View {
+    /// One tap to repeat something routine, from what was actually sent before.
+    private var repeatable: [ActivityItem] {
+        MockData.history(for: me.id)
+            .filter { $0.outcome == .sentFull && $0.amount > .zero }
+            .prefix(3)
+            .map { $0 }
+    }
+
+    private var repeatRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("ASK AGAIN")
+                .font(Typo.mono(11))
+                .tracking(0.9)
+                .foregroundStyle(Palette.muted)
+            FlowLayout(spacing: 8) {
+                ForEach(repeatable) { item in
+                    Button {
+                        startRequest(amount: item.amount, category: item.category,
+                                     note: item.title, emergency: false)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Palette.chevron)
+                            Text("\(item.title) \(item.amount.compact)")
+                                .font(Typo.body(14, .medium))
+                        }
+                        .foregroundStyle(Palette.ink)
+                        .padding(.horizontal, 14)
+                        .frame(height: 44)
+                        .background(Palette.card, in: Capsule())
+                        .overlay(Capsule().strokeBorder(Palette.borderStrong, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    /// The agent run is synchronous and slow, so the card appears straight away in
+    /// its waiting state and settles when the answer arrives.
+    private func startRequest(amount: Units, category: Category, note: String, emergency: Bool) {
+        let request = LiveRequest(amount: amount, category: category, note: note,
+                                  emergency: emergency, dependentID: me.id)
+        withAnimation(.snappy) { liveRequest = request }
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(1_400))
+            withAnimation(.snappy) { request.settle() }
+        }
+    }
+
+    private var policy: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "Your policy") {
                 Text("Set by \(guardianName)").font(Typo.body(13)).foregroundStyle(Palette.muted)
@@ -187,13 +224,7 @@ struct DependentHomeView: View {
                 InfoRow(title: "Weekly limit", value: limits.weeklyCap.compact)
                 InfoRow(title: "Per request, auto-sent", value: "up to \(limits.maxPerRequest.compact)")
                 InfoRow(title: "Proof needed over", value: limits.proofThreshold.compact)
-                if !limits.blockedCategories.isEmpty {
-                    InfoRow(
-                        title: "Blocked",
-                        value: limits.blockedCategories.map(\.label).joined(separator: " · "),
-                        mono: false
-                    )
-                }
+                InfoRow(title: "Blocked", value: limits.blockedCategories.map(\.label).joined(separator: " · "), mono: false)
             }
             .onTapGesture { tab = .policy }
         }
@@ -204,17 +235,9 @@ struct DependentHomeView: View {
             SectionHeader(title: "Recent requests") {
                 LinkButton(title: "See all") { tab = .requests }
             }
-            if store.requests.isEmpty {
-                Text("Nothing yet. What you ask for will show up here.")
-                    .font(Typo.body(14))
-                    .foregroundStyle(Palette.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 18)
-            } else {
-                ListCard {
-                    ForEach(store.requests.prefix(3)) { item in
-                        requestRow(item)
-                    }
+            ListCard {
+                ForEach(MockData.history(for: me.id).prefix(3)) { item in
+                    requestRow(item)
                 }
             }
         }
@@ -223,7 +246,7 @@ struct DependentHomeView: View {
     private func requestRow(_ item: ActivityItem) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).font(Typo.body(14, .semibold)).lineLimit(1)
+                Text(item.title).font(Typo.body(14, .semibold))
                 Text("\(item.amount.display) · \(item.time)")
                     .font(Typo.mono(13, .regular))
                     .foregroundStyle(Palette.textSecondary)
@@ -234,33 +257,8 @@ struct DependentHomeView: View {
         .padding(.vertical, 14)
         .accessibilityElement(children: .combine)
     }
-
-    /// The agent decides, and it can take a minute, so the card appears straight away in
-    /// its waiting state and settles on whatever comes back.
-    private func startRequest(amount: Units, category: Category, note: String, emergency: Bool) {
-        let request = LiveRequest(
-            amount: amount, category: category, note: note, emergency: emergency,
-            proofThreshold: limits?.proofThreshold ?? .zero
-        )
-        withAnimation(.snappy) { live = request }
-
-        Task {
-            let decision = await store.ask(
-                amount: amount, category: category, purpose: note, emergency: emergency
-            )
-            withAnimation(.snappy) {
-                if let decision {
-                    request.settle(with: decision)
-                } else {
-                    live = nil
-                }
-            }
-        }
-    }
 }
 
-extension String {
-    var capitalizedFirstLetter: String {
-        isEmpty ? self : prefix(1).uppercased() + dropFirst()
-    }
+#Preview {
+    DependentHomeView(tab: .constant(.home))
 }

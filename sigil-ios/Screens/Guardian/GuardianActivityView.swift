@@ -1,17 +1,15 @@
 import SwiftUI
 
 struct GuardianActivityView: View {
-    @Environment(Store.self) private var store
-
     private enum Filter: Hashable { case all, sent, needsGuardian, needsProof, stopped }
 
     @State private var filter: Filter = .all
 
-    /// One group for now: the gateway returns requests newest first without day
-    /// headings, and inventing them here would be inventing data.
     private var groups: [ActivityGroup] {
-        let items = store.requests.filter(matches)
-        return items.isEmpty ? [] : [ActivityGroup(label: "Recent", items: items)]
+        MockData.activity.compactMap { group in
+            let items = group.items.filter(matches)
+            return items.isEmpty ? nil : ActivityGroup(label: group.label, items: items)
+        }
     }
 
     private func matches(_ item: ActivityItem) -> Bool {
@@ -24,7 +22,7 @@ struct GuardianActivityView: View {
         }
     }
 
-    private var allItems: [ActivityItem] { store.requests }
+    private var allItems: [ActivityItem] { MockData.activity.flatMap(\.items) }
 
     var body: some View {
         Screen(spacing: 18) {
@@ -35,7 +33,7 @@ struct GuardianActivityView: View {
             }
 
             HStack(spacing: 8) {
-                statTile("Sent", sent.compact, dark: true)
+                statTile("Sent in Oct", MockData.sentThisMonth.compact, dark: true)
                 statTile("Needs you", "\(allItems.filter { $0.outcome.needsGuardian }.count)")
                 statTile("Stopped", "\(allItems.filter(\.outcome.isStopped).count)")
             }
@@ -47,7 +45,7 @@ struct GuardianActivityView: View {
             )
 
             if groups.isEmpty {
-                Text("Nothing here yet.")
+                Text("Nothing here yet this month.")
                     .font(Typo.body(14))
                     .foregroundStyle(Palette.muted)
                     .frame(maxWidth: .infinity)
@@ -57,23 +55,13 @@ struct GuardianActivityView: View {
                     LabeledSection(title: group.label) {
                         ListCard {
                             ForEach(group.items) { item in
-                                ActivityRow(
-                                    item: item,
-                                    dependentName: store.selectedDependent?.name,
-                                    showsGuardianSummary: true
-                                )
+                                ActivityRow(item: item, showsGuardianSummary: true)
                             }
                         }
                     }
                 }
             }
         }
-    }
-
-    private var sent: Units {
-        store.transfers
-            .filter { $0.status == "sent" }
-            .reduce(Units.zero) { $0 + Units(raw: $1.amount) }
     }
 
     private func statTile(_ label: String, _ value: String, dark: Bool = false) -> some View {
@@ -98,6 +86,5 @@ struct GuardianActivityView: View {
 }
 
 #Preview {
-    let session = AppSession()
-    return GuardianActivityView().environment(Store(session: session)).environment(session)
+    GuardianActivityView()
 }
