@@ -7,6 +7,52 @@ import Security
 /// Every guardian action that matters — activating a policy, answering a question,
 /// freezing — counts only as an ed25519 signature over a fixed text, so this is the one
 /// place the app proves who it is.
+/// The texts a guardian signs, built exactly as the gateway rebuilds them: UTF-8, `\n`
+/// line breaks, no trailing newline. A byte out of place is a refused signature.
+enum SignedMessage {
+    static func registerDependent(wallet: String, tokenAccount: String, nonce: String) -> String {
+        """
+        FinGuard:register-dependent
+        family:new
+        dependent_wallet:\(wallet)
+        dependent_token_account:\(tokenAccount)
+        nonce:\(nonce)
+        """
+    }
+
+    static func activatePolicy(family: String, version: Int, hash: String, nonce: String) -> String {
+        """
+        FinGuard:activate-policy
+        family:\(family)
+        version:\(version)
+        hash:\(hash)
+        nonce:\(nonce)
+        """
+    }
+
+    static func answerQuestion(
+        family: String, question: String, approve: Bool, amount: Units?, nonce: String
+    ) -> String {
+        """
+        FinGuard:answer-question
+        family:\(family)
+        question:\(question)
+        decision:\(approve ? "approve" : "deny")
+        amount_units:\(amount.map { String($0.raw) } ?? "none")
+        nonce:\(nonce)
+        """
+    }
+
+    static func freeze(family: String, frozen: Bool, nonce: String) -> String {
+        """
+        FinGuard:freeze
+        family:\(family)
+        frozen:\(frozen)
+        nonce:\(nonce)
+        """
+    }
+}
+
 protocol WalletService {
     /// The Solana address, base58.
     var address: String { get throws }

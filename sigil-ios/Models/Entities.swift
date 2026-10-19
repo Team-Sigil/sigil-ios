@@ -86,6 +86,17 @@ final class AppSession {
         }
     }
 
+    /// Takes the family the guardian just registered, and the token that came with it.
+    @MainActor
+    func adopt(_ registered: RegisteredFamilyDTO) {
+        token = registered.token
+        try? Keychain.write(Data(registered.token.utf8), account: keychainToken)
+        if !familyIDs.contains(registered.family.id) {
+            familyIDs.append(registered.family.id)
+        }
+        selectedFamilyID = registered.family.id
+    }
+
     @MainActor
     private func apply(_ session: Session, wallet address: String) {
         token = session.token

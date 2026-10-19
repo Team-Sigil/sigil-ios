@@ -130,3 +130,93 @@ struct NotificationDTO: Decodable {
     let createdAt: String
     let readAt: String?
 }
+
+struct RegisteredFamilyDTO: Decodable {
+    let family: FamilyDTO
+    /// A fresh token; the old one still works, since tokens carry no family.
+    let token: String
+}
+
+struct AnsweredDTO: Decodable {
+    let question: QuestionDTO
+    /// The agent's next move, when it could run.
+    let decision: DecisionDTO?
+}
+
+struct FreezeDTO: Decodable {
+    let frozen: Bool
+}
+
+struct TransferDTO: Decodable {
+    let id: String
+    let requestId: String?
+    let trigger: String
+    let amount: Int64
+    let category: String
+    let purpose: String
+    let status: String
+    let reason: String?
+    let txSignature: String?
+    let createdAt: String
+}
+
+struct HistoryItemDTO: Decodable {
+    let at: String
+    let kind: String
+    let amount: Int64
+    let category: String
+    let purpose: String?
+}
+
+struct HistoryDTO: Decodable {
+    let items: [HistoryItemDTO]
+    let transfers: [TransferDTO]
+}
+
+// MARK: Policy interview
+
+struct ChecklistItemDTO: Decodable, Identifiable {
+    let name: String
+    let label: String
+    let required: Bool
+    /// "missing", "set", … — what the agent has pinned down so far.
+    let status: String
+    let summary: String?
+
+    var id: String { name }
+    var done: Bool { status != "missing" }
+}
+
+struct InterviewProgressDTO: Decodable {
+    let requiredTotal: Int
+    let requiredDone: Int
+}
+
+struct DraftViewDTO: Decodable {
+    let id: String
+    let version: Int
+    let body: PolicyBodyDTO
+    let bodyHash: String
+    let testScenarios: [String]
+    let openQuestions: [String]?
+}
+
+struct InterviewDTO: Decodable {
+    let interviewId: String
+    /// `needs_input`, `ready`, or `unavailable` (nothing stored: send the same message again).
+    let status: String
+    let phase: String?
+    let question: String?
+    let questionKind: String?
+    let checklist: [ChecklistItemDTO]
+    let progress: InterviewProgressDTO?
+    /// The exact draft to sign, once `ready`.
+    let draft: DraftViewDTO?
+    let turnsUsed: Int
+    let maxTurns: Int
+}
+
+struct ActivatedPolicyDTO: Decodable {
+    let id: String
+    let version: Int
+}
