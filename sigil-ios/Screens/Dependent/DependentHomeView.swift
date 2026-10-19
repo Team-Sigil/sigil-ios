@@ -2,9 +2,9 @@ import SwiftUI
 
 struct DependentHomeView: View {
     @Binding var tab: DependentTab
-    @State private var draft = ""
-    @State private var sent = false
-    @FocusState private var draftFocused: Bool
+    @State private var asking = false
+    @State private var liveRequest: LiveRequest?
+    @State private var repeatAsk: ActivityItem?
 
     /// The signed-in dependent. Only ever their own data (SEC-10).
     private let me = MockData.dependents[0]
@@ -16,10 +16,33 @@ struct DependentHomeView: View {
         Screen(spacing: 20) {
             header
             balanceCard
-            askCard
+            askSection
             policy
             recent
         }
+        .sheet(isPresented: $asking) {
+            AskSheet(dependent: me) { amount, category, note, emergency in
+                startRequest(amount: amount, category: category, note: note, emergency: emergency)
+            }
+        }
+        .onAppear(perform: applyLaunchArguments)
+    }
+
+    /// Lets the simulator open the ask sheet, or start an ask of a given size, so
+    /// each state can be checked without tapping. Only ever set by a launch argument:
+    /// `-openAsk`, or `-askAmount 65 -askCategory clothing`.
+    private func applyLaunchArguments() {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-openAsk") {
+            asking = true
+        }
+        guard let index = arguments.firstIndex(of: "-askAmount"),
+              let raw = arguments[safe: index + 1], let whole = Int64(raw) else { return }
+        let category = arguments.firstIndex(of: "-askCategory")
+            .flatMap { arguments[safe: $0 + 1] }
+            .flatMap(Category.init(rawValue:)) ?? .food
+        startRequest(amount: Units(whole), category: category,
+                     note: "", emergency: arguments.contains("-askEmergency"))
     }
 
     private var header: some View {
@@ -80,84 +103,85 @@ struct DependentHomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private var askCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                SigilMark(size: 24)
-                Text("Ask the agent").font(Typo.body(15, .semibold))
+    @ViewBuilder private var askSection: some View {
+        if let liveRequest {
+            LiveRequestCard(request: liveRequest) {
+                withAnimation(.snappy) { self.liveRequest = nil }
             }
-
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField("What do you need, and how much? e.g. $25 for lab supplies",
-                          text: $draft, axis: .vertical)
-                    .lineLimit(2...5)
-                    .font(Typo.body(16))
-                    .focused($draftFocused)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .frame(minHeight: 64, alignment: .topLeading)
-                    .background(Palette.paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Palette.border, lineWidth: 1))
-                    .onChange(of: draft) { _, newValue in
-                        if !newValue.isEmpty { sent = false }
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        } else {
+            VStack(spacing: 12) {
+                Button {
+                    asking = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus").font(.system(size: 17, weight: .bold))
+                        Text("Ask for money").font(Typo.body(17, .semibold))
                     }
-                    .accessibilityLabel("Ask the agent")
-
-                Button(action: send) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 48)
-                        .background(Palette.ink, in: Circle())
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                    .background(Palette.ink, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Send request")
-            }
 
+                if !repeatable.isEmpty {
+                    repeatRow
+                }
+            }
+        }
+    }
+
+    /// One tap to repeat something routine, from what was actually sent before.
+    private var repeatable: [ActivityItem] {
+        MockData.history(for: me.id)
+            .filter { $0.outcome == .sentFull && $0.amount > .zero }
+            .prefix(3)
+            .map { $0 }
+    }
+
+    private var repeatRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("ASK AGAIN")
+                .font(Typo.mono(11))
+                .tracking(0.9)
+                .foregroundStyle(Palette.muted)
             FlowLayout(spacing: 8) {
-                ForEach(MockData.requestPresets, id: \.label) { preset in
+                ForEach(repeatable) { item in
                     Button {
-                        draft = preset.text
+                        startRequest(amount: item.amount, category: item.category,
+                                     note: item.title, emergency: false)
                     } label: {
-                        Text(preset.label)
-                            .font(Typo.body(14, .medium))
-                            .foregroundStyle(Palette.ink)
-                            .padding(.horizontal, 14)
-                            .frame(height: 44)
-                            .background(Palette.card, in: Capsule())
-                            .overlay(Capsule().strokeBorder(Palette.borderStrong, lineWidth: 1))
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Palette.chevron)
+                            Text("\(item.title) \(item.amount.compact)")
+                                .font(Typo.body(14, .medium))
+                        }
+                        .foregroundStyle(Palette.ink)
+                        .padding(.horizontal, 14)
+                        .frame(height: 44)
+                        .background(Palette.card, in: Capsule())
+                        .overlay(Capsule().strokeBorder(Palette.borderStrong, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
             }
-
-            if sent {
-                HStack(spacing: 10) {
-                    Image(systemName: "clock").font(.system(size: 14, weight: .semibold))
-                    Text("Checking this against your policy…").font(Typo.body(13, .medium))
-                }
-                .foregroundStyle(Palette.blueInk)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .transition(.opacity)
-            } else {
-                Text("Requests inside your policy are sent in seconds. Anything else goes to \(guardianName) to approve.")
-                    .font(Typo.body(12))
-                    .foregroundStyle(Palette.muted)
-                    .lineSpacing(2)
-            }
         }
-        .cardStyle(radius: 24)
     }
 
-    private func send() {
-        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        withAnimation(.snappy) {
-            draft = ""
-            sent = true
+    /// The agent run is synchronous and slow, so the card appears straight away in
+    /// its waiting state and settles when the answer arrives.
+    private func startRequest(amount: Units, category: Category, note: String, emergency: Bool) {
+        let request = LiveRequest(amount: amount, category: category, note: note,
+                                  emergency: emergency, dependentID: me.id)
+        withAnimation(.snappy) { liveRequest = request }
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(1_400))
+            withAnimation(.snappy) { request.settle() }
         }
-        draftFocused = false
     }
 
     private var policy: some View {

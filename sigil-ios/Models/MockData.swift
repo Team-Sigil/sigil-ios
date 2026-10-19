@@ -125,7 +125,7 @@ enum MockData {
 
     static let budgets: [String: Budget] = [
         "mt": Budget(
-            spent: Units(120), reserved: .zero, weeklyCap: Units(150), remaining: Units(30),
+            spent: Units(95), reserved: .zero, weeklyCap: Units(150), remaining: Units(55),
             delegatedRemaining: reservoirRemaining, resetText: "Resets Mon 20 Oct"
         ),
         "sm": Budget(

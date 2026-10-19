@@ -25,6 +25,23 @@ struct ContentView: View {
             }
         }
         .environment(session)
+        .onAppear {
+            if let role = Role.fromLaunchArguments, session.role == nil {
+                session.signIn(as: role)
+            }
+        }
+    }
+}
+
+extension Role {
+    /// Opens the app straight into one role, so a screen can be checked on the
+    /// simulator without going through sign-in. Only ever set by a launch argument:
+    /// `xcrun simctl launch <device> <bundle id> -startAsDependent`.
+    static var fromLaunchArguments: Role? {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-startAsDependent") { return .dependent }
+        if arguments.contains("-startAsGuardian") { return .guardian }
+        return nil
     }
 }
 
