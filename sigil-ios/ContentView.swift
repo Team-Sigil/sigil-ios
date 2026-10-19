@@ -25,9 +25,17 @@ struct ContentView: View {
             }
         }
         .environment(session)
-        .onAppear {
-            if let role = Role.fromLaunchArguments, session.role == nil {
-                session.signIn(as: role)
+        .task {
+            if let role = Role.fromLaunchArguments {
+                session.signInOffline(as: role)
+            } else {
+                await session.restore()
+                // `-signInNow` runs the real sign-in on launch, so the round-trip to the
+                // gateway can be checked on the simulator, which cannot be tapped.
+                if !session.signedIn,
+                   ProcessInfo.processInfo.arguments.contains("-signInNow") {
+                    await session.signIn()
+                }
             }
         }
     }
