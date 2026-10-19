@@ -24,6 +24,9 @@ enum Outcome: String, CaseIterable, Sendable {
     // that was sent, or refused it. No money moves either way.
     case receiptAccepted = "receipt_accepted"
     case receiptRejected = "receipt_rejected"
+    /// Never sent by the gateway: the app has no decision for the request yet, because the
+    /// agent is still on it or its detail didn't load. Nothing is known to be moving.
+    case awaitingDecision = "__awaiting_decision"
     case unknown = "__unknown"
 
     init(apiValue: String) {
@@ -46,6 +49,7 @@ enum Outcome: String, CaseIterable, Sendable {
         case .transferPending: "On its way"
         case .receiptAccepted: "Receipt accepted"
         case .receiptRejected: "Receipt not accepted"
+        case .awaitingDecision: "Being looked at"
         case .unknown: "Updated"
         }
     }
@@ -53,7 +57,7 @@ enum Outcome: String, CaseIterable, Sendable {
     /// Shorter wording for the dependent, who is talking to their own guardian.
     func label(guardianName: String) -> String {
         switch self {
-        case .askedGuardian, .auditorFlagged: "With \(guardianName)"
+        case .askedGuardian, .auditorFlagged: "Waiting for \(guardianName)"
         default: label
         }
     }

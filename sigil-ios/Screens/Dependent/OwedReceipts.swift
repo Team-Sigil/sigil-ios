@@ -165,9 +165,16 @@ struct OwedReceiptsCard: View {
                 progress[obligation.id] = .refused(reason)
             case .notEvidence(let reason), .failed(let reason):
                 progress[obligation.id] = .refused(reason)
-            case .stillOwed:
+            case .stillOwed(let decision):
+                // The agent's own words say why: it wants a clearer photo, it couldn't check
+                // just now, and so on. A fixed line here hid every one of those behind the
+                // same message.
+                let reply = decision?.replyToDependent
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 progress[obligation.id] = .refused(
-                    "That didn't show the payment. Send a clear photo of the receipt, or the shop's PDF."
+                    reply.isEmpty
+                        ? "That didn't settle the receipt. Send a clear photo of it, or the shop's PDF."
+                        : reply
                 )
             }
         }

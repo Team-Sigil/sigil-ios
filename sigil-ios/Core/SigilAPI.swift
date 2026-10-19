@@ -99,7 +99,9 @@ struct SigilAPI {
     }
 
     func questions(status: String = "open") async throws -> [QuestionDTO] {
-        try await send("questions?status=\(status)")
+        // Never in the path: `appending(path:)` would encode the `?`, and the gateway
+        // would answer `/questions%3Fstatus=open` with a 404.
+        try await send("questions", query: [URLQueryItem(name: "status", value: status)])
     }
 
     func notifications() async throws -> [NotificationDTO] {
@@ -276,12 +278,12 @@ struct SigilAPI {
     // MARK: Plumbing
 
     private func request(
-        _ path: String, method: String, authorized: Bool, timeout: TimeInterval
+        _ path: String, method: String, authorized: Bool, timeout: TimeInterval,
+        query: [URLQueryItem] = []
     ) -> URLRequest {
-        var request = URLRequest(
-            url: baseURL.appending(path: "api/v1").appending(path: path),
-            timeoutInterval: timeout
-        )
+        var url = baseURL.appending(path: "api/v1").appending(path: path)
+        if !query.isEmpty { url.append(queryItems: query) }
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = method
         if authorized, let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -297,9 +299,12 @@ struct SigilAPI {
         method: String = "GET",
         body: [String: Any]? = nil,
         authorized: Bool = true,
-        timeout: TimeInterval = SigilAPI.timeout
+        timeout: TimeInterval = SigilAPI.timeout,
+        query: [URLQueryItem] = []
     ) async throws -> Response {
-        var request = request(path, method: method, authorized: authorized, timeout: timeout)
+        var request = request(
+            path, method: method, authorized: authorized, timeout: timeout, query: query
+        )
         if let body {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -411,7 +416,15 @@ enum APIError: Error, Equatable {
                 status: status
             )
         } else {
-            self = .server(code: "UNEXPECTED", message: "Something went wrong.", status: status)
+            // Not the gateway's envelope: a proxy or firewall answered instead (a
+            // Cloudflare block page, say). The status is the only clue, so it is shown.
+            let body = String(decoding: data.prefix(4_096), as: UTF8.self).lowercased()
+            let who = body.contains("cloudflare") ? " Cloudflare answered instead of the gateway." : ""
+            self = .server(
+                code: "UNEXPECTED",
+                message: "Something went wrong (HTTP \(status)).\(who)",
+                status: status
+            )
         }
     }
 

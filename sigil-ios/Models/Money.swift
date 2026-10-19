@@ -26,15 +26,15 @@ struct Units: Hashable, Comparable, Sendable {
     static func + (lhs: Units, rhs: Units) -> Units { Units(raw: lhs.raw + rhs.raw) }
     static func - (lhs: Units, rhs: Units) -> Units { Units(raw: lhs.raw - rhs.raw) }
 
-    /// "$1,240.00"
+    /// "฿1,240.00"
     var display: String {
-        "$\(Self.grouped(raw / Self.scale)).\(Self.centsText(raw))"
+        "฿\(Self.grouped(raw / Self.scale)).\(Self.centsText(raw))"
     }
 
-    /// "$1,240" — drops a zero fraction, for tight spots like chips and stats.
+    /// "฿1,240" — drops a zero fraction, for tight spots like chips and stats.
     var compact: String {
         let cents = Self.centsText(raw)
-        return cents == "00" ? "$\(Self.grouped(raw / Self.scale))" : display
+        return cents == "00" ? "฿\(Self.grouped(raw / Self.scale))" : display
     }
 
     /// "1,240.00 aUSD" — used where the on-chain token matters more than the figure.

@@ -103,17 +103,26 @@ final class AppSession {
     /// person doesn't control.
     func signIn() async {
         signInProblem = nil
+        // Which step failed, so an error says whether Phantom or the gateway refused.
+        var step = "Connecting to Phantom"
         do {
             let wallet = signer
+            // A saved Phantom session may have been revoked in Phantom (4100), or belong to
+            // another account; signing in is the moment to start clean. The local test
+            // wallet is left alone: disconnecting it forgets its key.
+            if wallet is PhantomWallet { wallet.disconnect() }
             let address = try await wallet.connect()
             let api = SigilAPI()
+            step = "Getting the sign-in message"
             let challenge = try await api.nonce(wallet: address, purpose: "login")
             guard let message = challenge.message else {
                 signInProblem = "The gateway didn't send a sign-in message."
                 return
             }
             // Signed byte for byte: the gateway rebuilds this text and compares.
+            step = "Signing in Phantom"
             let signature = try await wallet.sign(message)
+            step = "Checking the signature"
             let session = try await api.verify(
                 wallet: address, message: message, signature: signature
             )
@@ -121,11 +130,11 @@ final class AppSession {
         } catch PhantomError.cancelled {
             // Tapping Cancel in Phantom is an answer, not a failure to report.
         } catch let error as PhantomError {
-            signInProblem = error.readable
+            signInProblem = "\(step) failed. \(error.readable)"
         } catch let error as APIError {
-            signInProblem = error.readable
+            signInProblem = "\(step) failed. \(error.readable)"
         } catch {
-            signInProblem = "Couldn't reach the gateway."
+            signInProblem = "\(step) failed. Couldn't reach the gateway."
         }
     }
 

@@ -21,6 +21,7 @@ struct DependentHomeView: View {
             policy
             recent
         }
+        .refreshable { await store.load() }
         .sheet(isPresented: $asking) {
             if let me {
                 AskSheet(
@@ -110,10 +111,18 @@ struct DependentHomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
+    private func storedItem(for live: LiveRequest) -> ActivityItem? {
+        guard let id = live.requestID else { return nil }
+        return store.activity(for: live.familyID).first { $0.id == id }
+    }
+
     @ViewBuilder private var askSection: some View {
         if let liveRequest {
             LiveRequestCard(request: liveRequest) {
                 withAnimation(.snappy) { self.liveRequest = nil }
+            }
+            .onChange(of: storedItem(for: liveRequest).map { "\($0.outcome.rawValue)|\($0.reply)" }, initial: true) {
+                if let item = storedItem(for: liveRequest) { liveRequest.sync(with: item) }
             }
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
         } else {
