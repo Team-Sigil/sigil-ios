@@ -192,7 +192,7 @@ struct DependentHomeView: View {
             ListCard {
                 InfoRow(title: "Weekly limit", value: limits.weeklyCap.compact)
                 InfoRow(title: "Per request, auto-sent", value: "up to \(limits.maxPerRequest.compact)")
-                InfoRow(title: "Receipt needed over", value: limits.proofThreshold.compact)
+                InfoRow(title: "Proof needed over", value: limits.proofThreshold.compact)
                 InfoRow(title: "Blocked", value: limits.blockedCategories.map(\.label).joined(separator: " · "), mono: false)
             }
             .onTapGesture { tab = .policy }

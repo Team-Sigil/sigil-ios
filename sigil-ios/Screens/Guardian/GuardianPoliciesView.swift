@@ -39,7 +39,7 @@ struct GuardianPoliciesView: View {
                 ListCard {
                     ValueRow(title: "Weekly cap", value: body_.weeklyCap.compact, mono: true)
                     ValueRow(title: "Most per request", value: body_.maxPerRequest.compact, mono: true)
-                    ValueRow(title: "Receipt needed over", value: body_.proofThreshold.compact, mono: true)
+                    ValueRow(title: "Proof needed over", value: body_.proofThreshold.compact, mono: true)
                     ValueRow(title: "Auditor reviews over",
                              value: reviewThresholdText, mono: true)
                 }

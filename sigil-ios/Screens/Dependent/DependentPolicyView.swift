@@ -20,8 +20,8 @@ struct DependentPolicyView: View {
                 ruleCard(outcome: .sentFull, title: "Sent on its own") {
                     Text("Requests up to \(limits.maxPerRequest.compact), as long as you're still inside your weekly \(limits.weeklyCap.compact).")
                 }
-                ruleCard(outcome: .askedProof, title: "Needs a receipt") {
-                    Text("Anything over \(limits.proofThreshold.compact). Take a photo in the app and the agent carries on.")
+                ruleCard(outcome: .askedProof, title: "Needs proof of the price") {
+                    Text("Anything over \(limits.proofThreshold.compact). Show a price tag or a quote before you buy, or a receipt if you've already paid — photographed in the app.")
                 }
                 ruleCard(outcome: .askedGuardian, title: "Goes to \(guardianName) first") {
                     Text("Anything over \(limits.maxPerRequest.compact), or past your weekly limit. She answers with her wallet, so only she can approve it.")

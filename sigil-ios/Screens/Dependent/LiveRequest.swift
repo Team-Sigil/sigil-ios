@@ -57,7 +57,7 @@ final class LiveRequest: Identifiable {
             reply = "You have \(budget.remaining.compact) left this week. I can send that now, or the full \(amount.compact) once your budget resets on Monday."
         } else if amount >= policy.proofThreshold {
             outcome = .askedProof
-            reply = "Anything over \(policy.proofThreshold.compact) needs a receipt. Take a photo in the app and I'll carry on."
+            reply = "Anything over \(policy.proofThreshold.compact) needs proof of the price. Show me a price tag or a quote if you haven't bought it yet, or a receipt if you've already paid."
         } else {
             outcome = .sentFull
             amountSent = amount
@@ -76,10 +76,13 @@ final class LiveRequest: Identifiable {
         reply = "I've asked \(guardianName), with what you told me and my own view. You'll get a notification when she answers."
     }
 
-    func attachProof() {
+    /// The gateway takes `kind` with the upload (`receipt | quote | photo`), so the
+    /// dependent says which they are showing before the camera opens.
+    func attachProof(kind: ProofKind) {
         outcome = .sentFull
         amountSent = amount
-        reply = "That receipt matches, so I've sent \(amount.compact)."
+        let what = kind == .receipt ? "receipt" : "price"
+        reply = "That \(what) covers \(amount.compact), so I've sent it."
     }
 }
 
@@ -87,6 +90,8 @@ final class LiveRequest: Identifiable {
 struct LiveRequestCard: View {
     @Bindable var request: LiveRequest
     var onDone: () -> Void
+
+    @State private var choosingProofKind = false
 
     private var guardianName: String { MockData.guardian.shortName }
 
@@ -158,14 +163,26 @@ struct LiveRequestCard: View {
 
         case .askedProof:
             Button {
-                withAnimation(.snappy) { request.attachProof() }
+                choosingProofKind = true
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "camera.fill").font(.system(size: 14, weight: .semibold))
-                    Text("Take a photo")
+                    Text("Show the price")
                 }
             }
             .buttonStyle(PrimaryButtonStyle())
+            .confirmationDialog("What are you showing me?",
+                                isPresented: $choosingProofKind, titleVisibility: .visible) {
+                Button("Price tag or quote") {
+                    withAnimation(.snappy) { request.attachProof(kind: .quote) }
+                }
+                Button("Receipt — I already paid") {
+                    withAnimation(.snappy) { request.attachProof(kind: .receipt) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Receipts have to be taken with the app's camera, so they can't be reused.")
+            }
 
         case .blocked, .declined:
             HStack(spacing: 10) {
