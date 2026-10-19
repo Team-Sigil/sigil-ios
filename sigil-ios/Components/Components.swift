@@ -135,54 +135,30 @@ struct PageTitle: View {
 
 // MARK: - Rows
 
-/// Tappable settings row: title, optional value, chevron.
+/// A settings row that states something: title on the left, value on the right.
+///
+/// Deliberately not a button and deliberately without a chevron. Every row in the app
+/// that uses it only reports a fact — the wallet, the weekly cap, when the summary
+/// arrives — and a chevron on a row that goes nowhere reads as a broken screen.
 struct ValueRow: View {
     let title: String
     var value: String?
     var mono = false
-    var action: () -> Void = {}
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Text(title)
-                    .font(Typo.body(15))
-                    .foregroundStyle(Palette.ink)
-                Spacer(minLength: 8)
-                if let value {
-                    Text(value)
-                        .font(mono ? Typo.mono(14, .regular) : Typo.body(14))
-                        .foregroundStyle(Palette.textSecondary)
-                }
-                Chevron()
-            }
-            .frame(minHeight: 52)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Row with a trailing switch.
-struct ToggleRow<Leading: View>: View {
-    let title: String
-    @Binding var isOn: Bool
-    @ViewBuilder var leading: Leading
 
     var body: some View {
         HStack(spacing: 10) {
-            leading
-            Toggle(title, isOn: $isOn)
+            Text(title)
                 .font(Typo.body(15))
-                .tint(Palette.accent)
+                .foregroundStyle(Palette.ink)
+            Spacer(minLength: 8)
+            if let value {
+                Text(value)
+                    .font(mono ? Typo.mono(14, .regular) : Typo.body(14))
+                    .foregroundStyle(Palette.textSecondary)
+            }
         }
         .frame(minHeight: 52)
-    }
-}
-
-extension ToggleRow where Leading == EmptyView {
-    init(title: String, isOn: Binding<Bool>) {
-        self.init(title: title, isOn: isOn) { EmptyView() }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -289,7 +265,7 @@ struct CircleIconButton: View {
     let label: String
     var filled = false
     var badge = false
-    var action: () -> Void = {}
+    var action: () -> Void
 
     var body: some View {
         Button(action: action) {
@@ -361,7 +337,7 @@ struct SecondaryButtonStyle: ButtonStyle {
 struct LinkButton: View {
     let title: String
     var systemImage: String?
-    var action: () -> Void = {}
+    var action: () -> Void
 
     var body: some View {
         Button(action: action) {
@@ -506,5 +482,24 @@ struct FlowLayout: Layout {
             rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
         }
         return rows
+    }
+}
+
+// MARK: - Presenting
+
+extension View {
+    /// `sheet(item:)` for a selection that is `Identifiable`, without an extra wrapper type.
+    func sheet<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        sheet(isPresented: Binding(
+            get: { item.wrappedValue != nil },
+            set: { if !$0 { item.wrappedValue = nil } }
+        )) {
+            if let value = item.wrappedValue {
+                content(value)
+            }
+        }
     }
 }

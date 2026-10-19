@@ -5,18 +5,21 @@ struct DependentRequestsView: View {
 
     private enum Filter: Hashable { case all, waiting, sent, stopped }
 
+    @Environment(Store.self) private var store
     @State private var filter: Filter = .all
+    @State private var retrying = false
+    @State private var retryNote: String?
 
-    private let me = MockData.dependents[0]
-    private var guardianName: String { MockData.guardian.shortName }
-    private var budget: Budget { MockData.budget(for: me.id) }
+    private var me: Dependent? { store.me }
+    private var guardianName: String { store.guardianName }
+    private var budget: Budget? { me.flatMap { store.budget(for: $0.familyID) } }
 
     private var pending: ActivityItem? {
-        MockData.history(for: me.id).first { $0.outcome.needsGuardian }
+        store.history(forFamily: me?.familyID).first { $0.outcome.needsGuardian }
     }
 
     private var history: [ActivityItem] {
-        MockData.history(for: me.id).filter { item in
+        store.history(forFamily: me?.familyID).filter { item in
             switch filter {
             case .all: true
             case .waiting: item.outcome.needsGuardian || item.outcome == .askedProof
@@ -29,7 +32,8 @@ struct DependentRequestsView: View {
     var body: some View {
         Screen(spacing: 18) {
             HStack(alignment: .top) {
-                PageTitle(title: "Requests", subtitle: "\(budget.spent.compact) received this week")
+                PageTitle(title: "Requests",
+                          subtitle: "\((budget?.spent ?? .zero).compact) received this week")
                 Spacer()
                 Button { tab = .home } label: {
                     HStack(spacing: 6) {
@@ -51,6 +55,7 @@ struct DependentRequestsView: View {
 
             if let pending, filter == .all || filter == .waiting {
                 pendingCard(pending)
+                    .task(id: pending.id) { await store.loadThread(pending.id) }
             }
 
             if !history.isEmpty {
@@ -77,7 +82,7 @@ struct DependentRequestsView: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(MockData.pendingThread.enumerated()), id: \.element.id) { index, entry in
+                ForEach(Array((store.threads[item.id] ?? []).enumerated()), id: \.element.id) { index, entry in
                     TimelineStep(state: .done,
                                  lineColor: index == 0 ? Palette.ink : Palette.borderStrong) {
                         Text("\(entry.role == .dependent ? "You" : "Agent") \(Text("· \(entry.at)").font(Typo.mono(12, .regular)).foregroundStyle(Palette.muted))")
@@ -91,15 +96,43 @@ struct DependentRequestsView: View {
                 }
             }
 
-            HStack(spacing: 10) {
-                Button("Add a note") {}
-                    .buttonStyle(SecondaryButtonStyle())
-                Button("Cancel request") {}
-                    .buttonStyle(SecondaryButtonStyle(foreground: Palette.danger))
+            // The one thing a dependent can genuinely do from here. A request can sit
+            // waiting on something that has since changed — the reservoir was empty when
+            // it was asked and has since been topped up — and this has the agent look at
+            // it again. It cannot move money by itself: whatever the agent decides still
+            // goes through the engine, and a transfer that already happened is idempotent.
+            Button(retrying ? "Asking the agent…" : "Ask the agent to look again") {
+                retry(item)
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(retrying)
+
+            if let note = retryNote {
+                Text(note)
+                    .font(Typo.body(12))
+                    .foregroundStyle(Palette.muted)
+                    .lineSpacing(2)
             }
         }
         .padding(2)
         .cardStyle(radius: 24)
+    }
+
+    /// Runs the agent again on a request that is still waiting. The outcome lands in the
+    /// store, so the card redraws itself; this only reports when nothing changed.
+    private func retry(_ item: ActivityItem) {
+        Task {
+            retrying = true
+            retryNote = nil
+            defer { retrying = false }
+            guard let decision = await store.retry(requestID: item.id) else {
+                retryNote = store.problem ?? "The agent didn't answer. Try again in a moment."
+                return
+            }
+            if decision.outcome.needsGuardian {
+                retryNote = "Still with \(guardianName) — only her signature can decide it."
+            }
+        }
     }
 
     private func historyRow(_ item: ActivityItem) -> some View {
@@ -174,5 +207,8 @@ private struct TimelineStep<Content: View>: View {
 }
 
 #Preview {
+    let session = AppSession()
     DependentRequestsView(tab: .constant(.requests))
+        .environment(session)
+        .environment(Store(session: session))
 }

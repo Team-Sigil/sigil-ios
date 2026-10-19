@@ -8,10 +8,15 @@ import SwiftUI
 /// out of prose.
 struct AskSheet: View {
     let dependent: Dependent
+    /// The signed limits and this week's budget, so the hint can say what will probably
+    /// happen. The engine still decides.
+    let limits: PolicyBody?
+    let budget: Budget?
     /// Called with the finished ask; the caller owns what happens next.
     var onAsk: (Units, Category, String, Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(Store.self) private var store
     @State private var digits = ""
     @State private var category: Category?
     @State private var purpose = ""
@@ -19,9 +24,8 @@ struct AskSheet: View {
     @State private var showingAllCategories = false
     @FocusState private var amountFocused: Bool
 
-    private var policy: PolicyBody { MockData.policy(for: dependent.id).body }
-    private var budget: Budget { MockData.budget(for: dependent.id) }
-    private var guardianName: String { MockData.guardian.shortName }
+    private var policy: PolicyBody? { limits }
+    private var guardianName: String { store.guardianName }
 
     private var amount: Units {
         Units(Int64(digits) ?? 0)
@@ -180,7 +184,7 @@ struct AskSheet: View {
 
     private func categoryChip(_ option: Category) -> some View {
         let isOn = category == option
-        let isBlocked = policy.blockedCategories.contains(option)
+        let isBlocked = policy?.blockedCategories.contains(option) ?? false
 
         return Button {
             withAnimation(.snappy) {
@@ -245,6 +249,9 @@ struct AskSheet: View {
         guard amount > .zero else {
             return "Tell me how much you need and what it's for."
         }
+        guard let policy else {
+            return "Your guardian hasn't set your policy yet, so I can't send anything."
+        }
         if let category, policy.blockedCategories.contains(category) {
             return "\(category.label) is blocked in your policy, so I can't send this one."
         }
@@ -254,11 +261,11 @@ struct AskSheet: View {
         if amount > policy.maxPerRequest {
             return "That's over your \(policy.maxPerRequest.compact) per-request limit, so \(guardianName) will be asked first."
         }
-        if amount > budget.remaining {
+        if let budget, amount > budget.remaining {
             return "You have \(budget.remaining.compact) left this week, so I may offer you less."
         }
         if amount >= policy.proofThreshold {
-            return "Over \(policy.proofThreshold.compact), I'll ask to see what it costs — a price tag, a quote, or a receipt."
+            return "Over \(policy.proofThreshold.compact), I'll send it first and then ask for the receipt."
         }
         return "Inside your limits, so this usually goes out straight away."
     }
@@ -286,7 +293,13 @@ struct AskSheet: View {
 }
 
 #Preview {
+    let session = AppSession()
     Color.white.sheet(isPresented: .constant(true)) {
-        AskSheet(dependent: MockData.dependents[0]) { _, _, _, _ in }
+        AskSheet(
+            dependent: MockData.dependents[0],
+            limits: MockData.policy(for: "mt").body,
+            budget: MockData.budget(for: "mt")
+        ) { _, _, _, _ in }
+        .environment(Store(session: session))
     }
 }

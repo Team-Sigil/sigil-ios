@@ -5,6 +5,7 @@ enum GuardianTab: Hashable {
 }
 
 struct GuardianTabView: View {
+    @Environment(Store.self) private var store
     @State private var tab: GuardianTab = .home
 
     var body: some View {
@@ -27,9 +28,16 @@ struct GuardianTabView: View {
         }
         .tint(Palette.ink)
         .preferredColorScheme(.light)
+        .task {
+            await store.load()
+        }
+        .onDisappear { store.stopListening() }
     }
 }
 
 #Preview {
-    GuardianTabView().environment(AppSession())
+    let session = AppSession()
+    GuardianTabView()
+        .environment(session)
+        .environment(Store(session: session))
 }

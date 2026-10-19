@@ -2,13 +2,10 @@ import SwiftUI
 
 struct DependentProfileView: View {
     @Environment(AppSession.self) private var session
+    @Environment(Store.self) private var store
 
-    private let me = MockData.dependents[0]
-    private var guardianName: String { MockData.guardian.shortName }
-    @State private var notifyArrives = true
-    @State private var notifyAnswers = true
-    @State private var notifyResets = false
-    @State private var faceID = true
+    private var me: Dependent? { store.me }
+    private var guardianName: String { store.guardianName }
 
     var body: some View {
         Screen(spacing: 22) {
@@ -24,7 +21,7 @@ struct DependentProfileView: View {
                             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.border, lineWidth: 1))
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(me.tokenAccount).font(Typo.mono(15, .semibold))
+                            Text(short(me?.tokenAccount ?? "")).font(Typo.mono(15, .semibold))
                             HStack(spacing: 6) {
                                 StatusDot(size: 7)
                                 Text("Registered by \(guardianName) · devnet")
@@ -44,40 +41,27 @@ struct DependentProfileView: View {
             }
 
             LabeledSection(title: "Guardian") {
-                Button {} label: {
-                    HStack(spacing: 12) {
-                        Avatar(initials: MockData.guardian.initials, background: Palette.ink, foreground: Palette.paper,
-                               fontSize: 14, weight: .semibold)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(guardianName) (\(MockData.guardian.name))").font(Typo.body(15, .semibold))
-                            Text("Funds your allowance · sets your policy")
-                                .font(Typo.body(12))
-                                .foregroundStyle(Palette.muted)
-                        }
-                        Spacer()
-                        Chevron()
+                HStack(spacing: 12) {
+                    Avatar(initials: "G", background: Palette.ink, foreground: Palette.paper,
+                           fontSize: 14, weight: .semibold)
+                    VStack(alignment: .leading, spacing: 2) {
+                        // The gateway tells a dependent nothing about their guardian
+                        // beyond the wallet that funds them, so there is nowhere to go.
+                        Text(short(store.guardianWallet)).font(Typo.body(15, .semibold))
+                        Text("Funds your allowance · sets your policy")
+                            .font(Typo.body(12))
+                            .foregroundStyle(Palette.muted)
                     }
-                    .foregroundStyle(Palette.ink)
-                    .padding(.vertical, -2)
-                    .cardStyle(padding: 14)
+                    Spacer()
                 }
-                .buttonStyle(.plain)
+                .foregroundStyle(Palette.ink)
+                .padding(.vertical, -2)
+                .cardStyle(padding: 14)
             }
 
-            LabeledSection(title: "Notify me when") {
+            LabeledSection(title: "Your wallet") {
                 ListCard {
-                    ToggleRow(title: "Money arrives", isOn: $notifyArrives)
-                    ToggleRow(title: "\(guardianName) answers a request", isOn: $notifyAnswers)
-                    ToggleRow(title: "My allowance resets", isOn: $notifyResets)
-                }
-            }
-
-            LabeledSection(title: "Security & help") {
-                ListCard {
-                    ToggleRow(title: "Sign in with Face ID", isOn: $faceID)
-                    ValueRow(title: "Connected wallet", value: "Devnet", mono: true)
-                    ValueRow(title: "Help centre")
-                    ValueRow(title: "Terms & privacy")
+                    ValueRow(title: "Connected wallet", value: short(session.wallet ?? ""), mono: true)
                 }
             }
 
@@ -85,29 +69,26 @@ struct DependentProfileView: View {
         }
     }
 
+    /// Addresses are 44 characters; the screens show the ends.
+    private func short(_ address: String) -> String {
+        guard address.count > 12 else { return address }
+        return "\(address.prefix(4))…\(address.suffix(4))"
+    }
+
     private var header: some View {
         VStack(spacing: 10) {
-            Avatar(initials: me.initials, size: 76, background: me.avatarBackground,
-                   foreground: me.avatarForeground, fontSize: 24)
+            Avatar(initials: me?.initials ?? "?", size: 76,
+                   background: me?.avatarBackground ?? Palette.blueSoft,
+                   foreground: me?.avatarForeground ?? Palette.blueInk, fontSize: 24)
             VStack(spacing: 4) {
-                Text(me.name)
+                Text(me?.name ?? "You")
                     .font(Typo.display(28))
                     .tracking(-0.6)
                     .accessibilityAddTraits(.isHeader)
-                Text(me.tokenAccount)
+                Text(short(me?.tokenAccount ?? ""))
                     .font(Typo.mono(14, .regular))
                     .foregroundStyle(Palette.muted)
             }
-            Button {} label: {
-                Text("Edit profile")
-                    .font(Typo.body(14, .semibold))
-                    .foregroundStyle(Palette.ink)
-                    .padding(.horizontal, 16)
-                    .frame(height: 44)
-                    .background(Palette.card, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Palette.borderStrong, lineWidth: 1))
-            }
-            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
@@ -116,5 +97,8 @@ struct DependentProfileView: View {
 }
 
 #Preview {
-    DependentProfileView().environment(AppSession())
+    let session = AppSession()
+    DependentProfileView()
+        .environment(session)
+        .environment(Store(session: session))
 }

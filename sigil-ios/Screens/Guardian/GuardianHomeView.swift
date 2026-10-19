@@ -3,10 +3,8 @@ import SwiftUI
 struct GuardianHomeView: View {
     @Binding var tab: GuardianTab
     @Environment(AppSession.self) private var session
-    @State private var decision: Decision?
+    @Environment(Store.self) private var store
     @State private var confirmingFreeze = false
-
-    private enum Decision { case approved, declined }
 
     var body: some View {
         Screen(spacing: 24) {
@@ -24,25 +22,31 @@ struct GuardianHomeView: View {
     private var header: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("THU 16 OCT")
+                Text(Dates.today())
                     .font(Typo.mono(12))
                     .tracking(0.7)
                     .foregroundStyle(Palette.muted)
-                Text("Good evening, \(MockData.guardian.name)")
+                Text(greeting)
                     .font(Typo.display(28))
                     .tracking(-0.6)
                     .accessibilityAddTraits(.isHeader)
             }
             Spacer()
-            CircleIconButton(systemImage: "bell", label: "Notifications, 1 new", badge: true)
             Button {
                 tab = .settings
             } label: {
-                Avatar(initials: MockData.guardian.initials, background: Palette.ink, foreground: Palette.paper, fontSize: 14, weight: .semibold)
+                Avatar(initials: store.guardian.initials, background: Palette.ink, foreground: Palette.paper, fontSize: 14, weight: .semibold)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Profile")
         }
+    }
+
+    /// The gateway has no route that sets a display name, so when it doesn't know one the
+    /// greeting simply doesn't use a name rather than greeting a wallet address.
+    private var greeting: String {
+        guard let name = session.displayName, !name.isEmpty else { return "Good evening" }
+        return "Good evening, \(name)"
     }
 
     // MARK: Agent status
@@ -84,17 +88,17 @@ struct GuardianHomeView: View {
                 Text(anyFrozen ? "Sent this month · some frozen" : "Sent this month")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.mutedOnDark)
-                Text(MockData.sentThisMonth.display)
+                Text(store.sentThisMonth.display)
                     .font(Typo.mono(40))
                     .tracking(-1.2)
-                Text("\(MockData.transfersThisMonth) transfers · all within policy")
+                Text(transfersText)
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.mutedOnDark)
             }
 
             HStack(spacing: 8) {
                 darkChip(icon: "drop.fill", text: reservoirText)
-                darkChip(icon: "checkmark.shield", text: "\(MockData.dependents.count) active policies")
+                darkChip(icon: "checkmark.shield", text: policiesText)
             }
         }
         .padding(20)
@@ -119,7 +123,7 @@ struct GuardianHomeView: View {
     /// app must say so rather than show a number it made up. The reservoir is one
     /// per guardian, shared by every dependent.
     private var reservoirText: String {
-        guard let remaining = MockData.reservoirRemaining else { return "Reservoir unavailable" }
+        guard let remaining = store.reservoirRemaining else { return "Reservoir unavailable" }
         return "Shared reservoir \(remaining.compact)"
     }
 
@@ -128,9 +132,21 @@ struct GuardianHomeView: View {
     private var agentStatusText: String {
         let frozen = session.frozenCount
         guard frozen > 0 else { return "Agent active" }
-        return frozen == MockData.dependents.count
+        return frozen == store.dependents.count
             ? "All frozen"
-            : "\(frozen) of \(MockData.dependents.count) frozen"
+            : "\(frozen) of \(store.dependents.count) frozen"
+    }
+
+    /// Counted from what actually moved this month, not from a fixed figure.
+    private var transfersText: String {
+        let count = store.transfersThisMonth
+        return count == 1 ? "1 request · all within policy"
+                          : "\(count) requests · all within policy"
+    }
+
+    private var policiesText: String {
+        let active = store.dependents.filter { store.policy(for: $0.familyID) != nil }.count
+        return active == 1 ? "1 active policy" : "\(active) active policies"
     }
 
     private func darkChip(icon: String, text: String) -> some View {
@@ -152,93 +168,15 @@ struct GuardianHomeView: View {
                     .font(Typo.display(19))
                     .tracking(-0.2)
                     .accessibilityAddTraits(.isHeader)
-                if decision == nil {
-                    Text("\(MockData.questions.count)")
+                if !store.questions.isEmpty {
+                    Text("\(store.questions.count)")
                         .font(Typo.mono(12, .semibold))
                         .frame(minWidth: 22, minHeight: 22)
                         .background(Palette.orange, in: Capsule())
                 }
             }
-
-            if let decision {
-                resolvedBanner(decision)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            } else {
-                pendingCard
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            }
+            ApprovalsSection(emptyMessage: "Nothing needs you right now.")
         }
-    }
-
-    private var pendingCard: some View {
-        let question = MockData.questions[0]
-        let dependent = MockData.dependent(question.dependentID)
-
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Avatar(initials: dependent.initials, background: dependent.avatarBackground,
-                       foreground: dependent.avatarForeground, fontSize: 14)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(dependent.name) · \(question.title)").font(Typo.body(15, .semibold))
-                    Text("Requested \(question.askedAgo)").font(Typo.body(13)).foregroundStyle(Palette.muted)
-                }
-                Spacer()
-                Text(question.amount.display).font(Typo.mono(20)).tracking(-0.4)
-            }
-
-            HStack(alignment: .top, spacing: 10) {
-                SigilMark(size: 24)
-                Text("\(Text("Agent:").bold().foregroundStyle(Palette.ink)) \(question.agentView)")
-                    .font(Typo.body(13))
-                    .foregroundStyle(Palette.textSecondary)
-                    .lineSpacing(2)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.paper, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            if let auditorView = question.auditorView {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "flag")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Palette.orangeInk)
-                        .padding(.top, 1)
-                    Text("\(Text("Auditor:").bold().foregroundStyle(Palette.orangeDeep)) \(auditorView)")
-                        .font(Typo.body(13))
-                        .foregroundStyle(Palette.orangeInk)
-                        .lineSpacing(2)
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Palette.orangeSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-
-            HStack(spacing: 10) {
-                Button("Decline") { withAnimation(.snappy) { decision = .declined } }
-                    .buttonStyle(SecondaryButtonStyle())
-                Button("Approve \(question.amount.compact)") { withAnimation(.snappy) { decision = .approved } }
-                    .buttonStyle(PrimaryButtonStyle())
-            }
-        }
-        .cardStyle()
-    }
-
-    private func resolvedBanner(_ decision: Decision) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Palette.paper)
-                .frame(width: 36, height: 36)
-                .background(Palette.ink, in: Circle())
-            Text(decision == .approved
-                 ? "Approved and signed. \(MockData.questions[0].amount.compact) is on its way to \(MockData.name(of: MockData.questions[0].dependentID))."
-                 : "Declined. \(MockData.name(of: MockData.questions[0].dependentID)) has been told why.")
-                .font(Typo.body(14))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            LinkButton(title: "Undo") { withAnimation(.snappy) { self.decision = nil } }
-        }
-        .padding(.vertical, -2)
-        .cardStyle(padding: 14)
     }
 
     // MARK: Dependents
@@ -250,9 +188,16 @@ struct GuardianHomeView: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(MockData.dependents) { dependent in
-                        Button { tab = .dependents } label: {
-                            DependentMiniCard(dependent: dependent)
+                    ForEach(store.dependents) { dependent in
+                        Button {
+                            session.selectedFamilyID = dependent.familyID
+                            tab = .dependents
+                        } label: {
+                            DependentMiniCard(
+                                dependent: dependent,
+                                budget: store.budget(for: dependent.familyID),
+                                plan: store.planText(for: dependent.familyID, short: true)
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -272,8 +217,12 @@ struct GuardianHomeView: View {
                 LinkButton(title: "See all") { tab = .activity }
             }
             ListCard {
-                ForEach(MockData.activity[0].items.prefix(3)) { item in
-                    ActivityRow(item: item, showsGuardianSummary: true)
+                ForEach(store.allActivity.prefix(3)) { item in
+                    ActivityRow(
+                        item: item,
+                        dependentName: store.name(of: item.dependentID),
+                        showsGuardianSummary: true
+                    )
                 }
             }
         }
@@ -282,8 +231,8 @@ struct GuardianHomeView: View {
 
 private struct DependentMiniCard: View {
     let dependent: Dependent
-
-    private var budget: Budget { MockData.budget(for: dependent.id) }
+    let budget: Budget?
+    let plan: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -292,17 +241,18 @@ private struct DependentMiniCard: View {
                        background: dependent.avatarBackground, foreground: dependent.avatarForeground, fontSize: 13)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(dependent.name).font(Typo.body(15, .semibold))
-                    Text(MockData.planText(for: dependent.id, short: true))
+                    Text(plan)
                         .font(Typo.body(12)).foregroundStyle(Palette.muted)
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
-                ProgressBar(fraction: budget.fraction, height: 6)
-                Text("\(budget.spent.compact) / \(budget.weeklyCap.compact) used")
+                ProgressBar(fraction: budget?.fraction ?? 0, height: 6)
+                Text(budget.map { "\($0.spent.compact) / \($0.weeklyCap.compact) used" }
+                     ?? "No policy yet")
                     .font(Typo.mono(12, .regular))
                     .foregroundStyle(Palette.textSecondary)
             }
-            Text(budget.resetText).font(Typo.body(12)).foregroundStyle(Palette.muted)
+            Text(budget?.resetText ?? " ").font(Typo.body(12)).foregroundStyle(Palette.muted)
         }
         .foregroundStyle(Palette.ink)
         .frame(width: 210, alignment: .leading)
@@ -311,5 +261,8 @@ private struct DependentMiniCard: View {
 }
 
 #Preview {
-    GuardianHomeView(tab: .constant(.home)).environment(AppSession())
+    let session = AppSession()
+    GuardianHomeView(tab: .constant(.home))
+        .environment(session)
+        .environment(Store(session: session))
 }

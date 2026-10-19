@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Stand-in data for the UI pass. Shapes follow the gateway's App API (its README)
-/// and the agent layer's contracts, so the screens can be wired to the real service
-/// without changing what they render.
+/// Fixtures for SwiftUI previews only.
+///
+/// The screens read the gateway through `Store`; these shapes stay because a `#Preview`
+/// has no session and no network, and a preview that cannot render is a preview nobody
+/// keeps working.
 enum MockData {
     // Ids a signed message carries (gateway "Guardian signatures").
     static let nonce = "3c0b…77e4"
@@ -11,12 +13,7 @@ enum MockData {
     /// Phantom delegation.
     static let guardianTokenAccount = "6Jn2…qW4r"
 
-    static let guardian = Guardian(
-        name: "Hnin",
-        shortName: "Mom",
-        initials: "HN",
-        wallet: "4Qm1…kT8v"
-    )
+    static let guardian = Guardian(wallet: "4Qm1…kT8v", displayName: "Hnin")
 
     /// `delegated_remaining` is nullable: the chain may simply not be readable.
     static let reservoirRemaining: Units? = Units(1_240)

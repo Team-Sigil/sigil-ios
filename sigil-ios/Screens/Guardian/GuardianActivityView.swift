@@ -3,10 +3,11 @@ import SwiftUI
 struct GuardianActivityView: View {
     private enum Filter: Hashable { case all, sent, needsGuardian, needsProof, stopped }
 
+    @Environment(Store.self) private var store
     @State private var filter: Filter = .all
 
     private var groups: [ActivityGroup] {
-        MockData.activity.compactMap { group in
+        store.activityGroups.compactMap { group in
             let items = group.items.filter(matches)
             return items.isEmpty ? nil : ActivityGroup(label: group.label, items: items)
         }
@@ -22,18 +23,22 @@ struct GuardianActivityView: View {
         }
     }
 
-    private var allItems: [ActivityItem] { MockData.activity.flatMap(\.items) }
+    private var allItems: [ActivityItem] { store.allActivity }
 
     var body: some View {
         Screen(spacing: 18) {
-            HStack(alignment: .top) {
-                PageTitle(title: "Activity", subtitle: "Every decision the agent made, and why.")
-                Spacer()
-                CircleIconButton(systemImage: "arrow.down.to.line", label: "Export statement")
+            PageTitle(title: "Activity", subtitle: "Every decision the agent made, and why.")
+
+            // The rows below are a record; a question is a job. Anything still waiting on
+            // the guardian is answerable right here, rather than only on the home screen.
+            if !store.questions.isEmpty {
+                LabeledSection(title: "Waiting for you") {
+                    ApprovalsSection()
+                }
             }
 
             HStack(spacing: 8) {
-                statTile("Sent in Oct", MockData.sentThisMonth.compact, dark: true)
+                statTile(sentLabel, store.sentThisMonth.compact, dark: true)
                 statTile("Needs you", "\(allItems.filter { $0.outcome.needsGuardian }.count)")
                 statTile("Stopped", "\(allItems.filter(\.outcome.isStopped).count)")
             }
@@ -55,13 +60,22 @@ struct GuardianActivityView: View {
                     LabeledSection(title: group.label) {
                         ListCard {
                             ForEach(group.items) { item in
-                                ActivityRow(item: item, showsGuardianSummary: true)
+                                ActivityRow(
+                                    item: item,
+                                    dependentName: store.name(of: item.dependentID),
+                                    showsGuardianSummary: true
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// "Sent in Oct" — the month being looked at, not a fixed one.
+    private var sentLabel: String {
+        "Sent in \(Dates.formatter("MMM").string(from: Date()))"
     }
 
     private func statTile(_ label: String, _ value: String, dark: Bool = false) -> some View {
@@ -86,5 +100,8 @@ struct GuardianActivityView: View {
 }
 
 #Preview {
+    let session = AppSession()
     GuardianActivityView()
+        .environment(session)
+        .environment(Store(session: session))
 }

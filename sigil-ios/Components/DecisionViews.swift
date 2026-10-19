@@ -29,6 +29,12 @@ private func style(for outcome: Outcome) -> OutcomeStyle {
         OutcomeStyle(icon: "xmark", foreground: Palette.segmentOff, background: Palette.graySoft)
     case .blocked:
         OutcomeStyle(icon: "hand.raised", foreground: Palette.danger, background: Palette.dangerSoft)
+    // A receipt check settles a debt rather than moving money, so it is marked off
+    // rather than celebrated, and a refusal is a caution rather than a block.
+    case .receiptAccepted:
+        OutcomeStyle(icon: "doc.text", foreground: Palette.green, background: Palette.mint.opacity(0.25))
+    case .receiptRejected:
+        OutcomeStyle(icon: "doc.text", foreground: Palette.orangeInk, background: Palette.orangeSoft)
     }
 }
 
@@ -100,8 +106,9 @@ struct ProofFlagChip: View {
 
 struct ActivityRow: View {
     let item: ActivityItem
-    /// Shown on the guardian's screens, where several dependents are mixed together.
-    var showsDependent = true
+    /// Set on the guardian's screens, where several dependents are mixed together; nil on
+    /// a dependent's own screens, which only ever show themselves.
+    var dependentName: String?
     /// Guardians read the agent's summary for them; dependents read their own reply.
     var showsGuardianSummary = false
     var guardianName: String?
@@ -145,7 +152,7 @@ struct ActivityRow: View {
     }
 
     private var title: String {
-        showsDependent ? "\(item.title) · \(MockData.name(of: item.dependentID))" : item.title
+        dependentName.map { "\(item.title) · \($0)" } ?? item.title
     }
 
     private var text: String {
@@ -168,7 +175,9 @@ struct ActivityRow: View {
                 ForEach(Outcome.allCases, id: \.self) { StatusBadge(outcome: $0) }
             }
             ListCard {
-                ForEach(MockData.activity[0].items) { ActivityRow(item: $0) }
+                ForEach(MockData.activity[0].items) {
+                    ActivityRow(item: $0, dependentName: MockData.name(of: $0.dependentID))
+                }
             }
         }
         .padding()
