@@ -16,6 +16,24 @@ final class AppSession {
     /// `family_ids` from sign-in, oldest first. Empty for a guardian means onboarding.
     var familyIDs: [String] = []
 
+    /// Set while talking to the gateway, so the sign-in button can show it.
+    var busy = false
+    /// The last thing that went wrong, in the gateway's own words.
+    var problem: String?
+    /// Who we are, once signed in.
+    var wallet: String?
+
+    private var token: String?
+    private let keychainToken = "sigil.session.token"
+    let signer: WalletService = LocalWallet()
+
+    /// The API, pointed at the family the guardian is acting on.
+    var api: SigilAPI {
+        SigilAPI(token: token, familyID: familyIDs.count > 1 ? selectedFamilyID : nil)
+    }
+
+    var signedIn: Bool { token != nil }
+
     /// The family every guardian request is about. Nil until one is chosen.
     var selectedFamilyID: String?
 
@@ -39,20 +57,89 @@ final class AppSession {
 
     var frozenCount: Int { frozenFamilies.count }
 
-    func signIn(as role: Role) {
+    /// Sign-In With Solana: ask the gateway for its text, sign it, exchange it for a
+    /// session. The role is the gateway's to decide — a wallet it knows as a dependent is
+    /// a dependent, anything else is a guardian — so the app never picks it.
+    @MainActor
+    func signIn() async {
+        busy = true
+        problem = nil
+        defer { busy = false }
+        do {
+            let address = try signer.address
+            var api = SigilAPI()
+            let challenge = try await api.nonce(wallet: address, purpose: "login")
+            guard let message = challenge.message else {
+                problem = "The server didn't send anything to sign."
+                return
+            }
+            let signature = try signer.sign(message)
+            let session = try await api.verify(
+                wallet: address, message: message, signature: signature
+            )
+            api.token = session.token
+            apply(session, wallet: address)
+        } catch let error as APIError {
+            problem = error.readable
+        } catch {
+            problem = "Couldn't reach the gateway."
+        }
+    }
+
+    @MainActor
+    private func apply(_ session: Session, wallet address: String) {
+        token = session.token
+        wallet = address
+        familyIDs = session.familyIds
+        selectedFamilyID = session.familyId ?? session.familyIds.first
+        try? Keychain.write(Data(session.token.utf8), account: keychainToken)
         withAnimation(.easeInOut(duration: 0.3)) {
-            self.role = role
-            familyIDs = MockData.dependents.map(\.familyID)
-            selectedFamilyID = familyIDs.first
+            role = session.role == "dependent" ? .dependent : .guardian
+        }
+    }
+
+    /// Restores a session from the Keychain, so the app doesn't ask for a signature on
+    /// every launch. A `401` later means it expired and sign-in runs again.
+    @MainActor
+    func restore() async {
+        guard let stored = Keychain.read(keychainToken),
+              let value = String(data: stored, encoding: .utf8) else { return }
+        token = value
+        do {
+            let me = try await api.me()
+            wallet = me.wallet
+            familyIDs = me.familyIds
+            selectedFamilyID = me.familyId ?? me.familyIds.first
+            withAnimation(.easeInOut(duration: 0.3)) {
+                role = me.role == "dependent" ? .dependent : .guardian
+            }
+        } catch {
+            token = nil
+            Keychain.delete(keychainToken)
         }
     }
 
     func signOut() {
+        token = nil
+        wallet = nil
+        Keychain.delete(keychainToken)
+        // While a local key stands in for a wallet, forgetting it is what "disconnect"
+        // means; with Phantom this would just drop the session.
+        (signer as? LocalWallet)?.forget()
         withAnimation(.easeInOut(duration: 0.3)) {
             role = nil
             familyIDs = []
             selectedFamilyID = nil
             frozenFamilies = []
+        }
+    }
+
+    /// Used by the simulator launch arguments, which open a role without a gateway.
+    func signInOffline(as role: Role) {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            self.role = role
+            familyIDs = MockData.dependents.map(\.familyID)
+            selectedFamilyID = familyIDs.first
         }
     }
 }
