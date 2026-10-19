@@ -2,18 +2,23 @@ import SwiftUI
 
 struct GuardianDependentsView: View {
     @Binding var tab: GuardianTab
+    @Environment(AppSession.self) private var session
 
     var body: some View {
         Screen(spacing: 16) {
             HStack(alignment: .top) {
-                PageTitle(title: "Dependents", subtitle: "\(MockData.dependents.count) dependents funded from your reservoir")
+                PageTitle(title: "Dependents",
+                          subtitle: "\(MockData.dependents.count) dependents sharing one reservoir")
                 Spacer()
                 CircleIconButton(systemImage: "plus", label: "Add dependent", filled: true)
             }
             .padding(.bottom, 4)
 
             ForEach(MockData.dependents) { dependent in
-                DependentCard(dependent: dependent) { tab = .policies }
+                DependentCard(dependent: dependent, frozen: session.isFrozen(dependent.familyID)) {
+                    session.selectedFamilyID = dependent.familyID
+                    tab = .policies
+                }
             }
 
             inviteCard
@@ -32,7 +37,7 @@ struct GuardianDependentsView: View {
                 Text("Add a dependent")
                     .font(Typo.display(18))
                     .accessibilityAddTraits(.isHeader)
-                Text("Send an invite link. They join Sigil with their own account, then you set their policy.")
+                Text("They sign in with their own wallet, then you set their policy. Every dependent you add spends from the same reservoir, so top it up to cover them.")
                     .font(Typo.body(14))
                     .foregroundStyle(Palette.textSecondary)
                     .lineSpacing(2)
@@ -58,6 +63,7 @@ struct GuardianDependentsView: View {
 
 private struct DependentCard: View {
     let dependent: Dependent
+    let frozen: Bool
     var onEditPolicy: () -> Void
 
     private var budget: Budget { MockData.budget(for: dependent.id) }
@@ -73,7 +79,16 @@ private struct DependentCard: View {
                     Text(MockData.planText(for: dependent.id)).font(Typo.body(13)).foregroundStyle(Palette.muted)
                 }
                 Spacer()
-                DotBadge(text: "v\(policy.version)")
+                if frozen {
+                    Text("Frozen")
+                        .font(Typo.body(12, .semibold))
+                        .foregroundStyle(Palette.orangeInk)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Palette.orangeSoft, in: Capsule())
+                } else {
+                    DotBadge(text: "v\(policy.version)")
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -123,5 +138,5 @@ private struct DependentCard: View {
 }
 
 #Preview {
-    GuardianDependentsView(tab: .constant(.dependents))
+    GuardianDependentsView(tab: .constant(.dependents)).environment(AppSession())
 }

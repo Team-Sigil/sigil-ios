@@ -41,6 +41,7 @@ struct GuardianSettingsView: View {
                     }
                     .buttonStyle(.plain)
                     ValueRow(title: MockData.guardian.wallet, value: "Devnet", mono: true)
+                    ValueRow(title: "Token account", value: MockData.guardianTokenAccount, mono: true)
                     ValueRow(title: "Delegated, still unspent",
                              value: MockData.reservoirRemaining?.compact ?? "Can't read the chain", mono: true)
                     Button {} label: {
@@ -55,7 +56,7 @@ struct GuardianSettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Text("The money stays in your wallet. The agent only holds a spending permission you can revoke at any time.")
+                Text("One reservoir covers all \(MockData.dependents.count) dependents. The money stays in your wallet, and the agent only holds a spending permission you can revoke at any time.")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.muted)
                     .lineSpacing(2)
@@ -66,11 +67,12 @@ struct GuardianSettingsView: View {
                 ListCard {
                     Button { confirmingFreeze = true } label: {
                         HStack(spacing: 10) {
-                            Text(session.frozen ? "Frozen" : "Agent active").font(Typo.body(15))
+                            Text("Freeze transfers").font(Typo.body(15))
                             Spacer()
-                            Text(session.frozen ? "Unfreeze" : "Freeze")
-                                .font(Typo.body(14, .semibold))
-                                .foregroundStyle(session.frozen ? Palette.accent : Palette.danger)
+                            Text(session.frozenCount > 0 ? "\(session.frozenCount) frozen" : "None frozen")
+                                .font(Typo.body(14))
+                                .foregroundStyle(Palette.textSecondary)
+                            Chevron()
                         }
                         .frame(minHeight: 52)
                         .contentShape(Rectangle())
@@ -110,23 +112,7 @@ struct GuardianSettingsView: View {
 
             SignOutButton { session.signOut() }
         }
-        .sheet(isPresented: $confirmingFreeze) {
-            SignatureSheet(
-                title: session.frozen ? "Lift the freeze" : "Freeze all transfers",
-                summary: session.frozen
-                    ? "The agent can start sending again, inside the limits you signed."
-                    : "Nothing moves until you unfreeze, whatever the agent or the dependents ask for.",
-                message: [
-                    "FinGuard:freeze",
-                    "family:\(MockData.familyID)",
-                    "frozen:\(session.frozen ? "false" : "true")",
-                    "nonce:\(MockData.nonce)",
-                ],
-                confirmTitle: session.frozen ? "Sign and unfreeze" : "Sign and freeze"
-            ) {
-                withAnimation(.snappy) { session.frozen.toggle() }
-            }
-        }
+        .sheet(isPresented: $confirmingFreeze) { FreezeSheet() }
     }
 }
 
