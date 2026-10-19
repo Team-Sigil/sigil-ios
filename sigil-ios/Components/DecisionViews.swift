@@ -23,6 +23,8 @@ private func style(for outcome: Outcome) -> OutcomeStyle {
         OutcomeStyle(icon: "clock", foreground: Palette.ink, background: .clear, outlined: true)
     case .auditorFlagged:
         OutcomeStyle(icon: "flag", foreground: Palette.orangeInk, background: Palette.orangeSoft)
+    case .awaitingDecision:
+        OutcomeStyle(icon: "ellipsis", foreground: Palette.muted, background: .clear, outlined: true)
     case .askedDependent:
         OutcomeStyle(icon: "questionmark", foreground: Palette.ink, background: .clear, outlined: true)
     case .declined, .outOfScope, .safeFallback, .unknown:

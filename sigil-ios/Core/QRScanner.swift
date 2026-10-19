@@ -24,6 +24,8 @@ struct QRScannerSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var permission = AVCaptureDevice.authorizationStatus(for: .video)
+    /// Why the live camera isn't showing anything, when it isn't.
+    @State private var cameraProblem: String?
 
     var body: some View {
         ZStack {
@@ -31,10 +33,10 @@ struct QRScannerSheet: View {
 
             switch permission {
             case .authorized:
-                QRScanner { address in
+                QRScanner(onFound: { address in
                     onFound(address)
                     dismiss()
-                }
+                }, onProblem: { cameraProblem = $0 })
                 .ignoresSafeArea()
                 guidance
             case .notDetermined:
@@ -64,9 +66,27 @@ struct QRScannerSheet: View {
 
             Spacer()
 
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(.white.opacity(0.85), lineWidth: 3)
-                .frame(width: 240, height: 240)
+            if let cameraProblem {
+                // A black frame with no explanation reads as a broken app.
+                VStack(spacing: 10) {
+                    Image(systemName: "video.slash.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text(cameraProblem)
+                        .font(Typo.body(15))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                    Text("You can also cancel and paste the address instead.")
+                        .font(Typo.body(13))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 32)
+            } else {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(.white.opacity(0.85), lineWidth: 3)
+                    .frame(width: 240, height: 240)
+            }
 
             Spacer()
 
@@ -109,10 +129,12 @@ struct QRScannerSheet: View {
 
 private struct QRScanner: UIViewControllerRepresentable {
     var onFound: (String) -> Void
+    var onProblem: (String?) -> Void
 
     func makeUIViewController(context: Context) -> ScannerController {
         let controller = ScannerController()
         controller.onFound = onFound
+        controller.onProblem = onProblem
         return controller
     }
 
@@ -120,38 +142,126 @@ private struct QRScanner: UIViewControllerRepresentable {
 
     final class ScannerController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
         var onFound: ((String) -> Void)?
+        var onProblem: ((String?) -> Void)?
         private let session = AVCaptureSession()
         private let queue = DispatchQueue(label: "casa.iden.sigil.scanner")
         private var preview: AVCaptureVideoPreviewLayer?
+        private var rotation: AVCaptureDevice.RotationCoordinator?
+        private var rotationObservation: NSKeyValueObservation?
+        private var observers: [NSObjectProtocol] = []
         private var found = false
 
         override func viewDidLoad() {
             super.viewDidLoad()
             view.backgroundColor = .black
-            guard let device = AVCaptureDevice.default(for: .video),
-                  let input = try? AVCaptureDeviceInput(device: device),
-                  session.canAddInput(input) else { return }
-            session.addInput(input)
-
-            let output = AVCaptureMetadataOutput()
-            guard session.canAddOutput(output) else { return }
-            session.addOutput(output)
-            output.setMetadataObjectsDelegate(self, queue: .main)
-            // Set after adding to the session, or the type isn't available yet.
-            output.metadataObjectTypes = [.qr]
+            guard let device = AVCaptureDevice.default(for: .video) else {
+                report("This device has no camera Sigil can use.")
+                return
+            }
 
             let layer = AVCaptureVideoPreviewLayer(session: session)
             layer.videoGravity = .resizeAspectFill
             layer.frame = view.bounds
             view.layer.addSublayer(layer)
             preview = layer
+            followRotation(of: device, preview: layer)
+            observeInterruptions()
+
+            // Configuring and starting a session both block, so neither runs on the main
+            // thread; a stalled main thread is one more way to end up with a black frame.
+            queue.async { [weak self] in self?.configure(device) }
+        }
+
+        private func configure(_ device: AVCaptureDevice) {
+            session.beginConfiguration()
+            // On iPad, iOS cuts a capture session off whenever the app shares the screen
+            // (Split View, Slide Over, Stage Manager) unless it opts in. The receipt camera
+            // is the system's picker, which does this itself; this session has to ask.
+            if session.isMultitaskingCameraAccessSupported {
+                session.isMultitaskingCameraAccessEnabled = true
+            }
+            guard let input = try? AVCaptureDeviceInput(device: device),
+                  session.canAddInput(input) else {
+                session.commitConfiguration()
+                report("The camera couldn't be started.")
+                return
+            }
+            session.addInput(input)
+
+            let output = AVCaptureMetadataOutput()
+            guard session.canAddOutput(output) else {
+                session.commitConfiguration()
+                report("The camera can't read QR codes on this device.")
+                return
+            }
+            session.addOutput(output)
+            output.setMetadataObjectsDelegate(self, queue: .main)
+            // Set after adding to the session, or the type isn't available yet.
+            output.metadataObjectTypes = [.qr]
+            session.commitConfiguration()
+            session.startRunning()
+        }
+
+        /// Keeps the preview upright as the iPad turns; without it the picture is
+        /// sideways in landscape.
+        private func followRotation(of device: AVCaptureDevice, preview: AVCaptureVideoPreviewLayer) {
+            let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: preview)
+            rotation = coordinator
+            let apply = { [weak preview] (angle: CGFloat) in
+                guard let connection = preview?.connection,
+                      connection.isVideoRotationAngleSupported(angle) else { return }
+                connection.videoRotationAngle = angle
+            }
+            apply(coordinator.videoRotationAngleForHorizonLevelPreview)
+            rotationObservation = coordinator.observe(
+                \.videoRotationAngleForHorizonLevelPreview, options: [.new]
+            ) { _, change in
+                guard let angle = change.newValue else { return }
+                DispatchQueue.main.async { apply(angle) }
+            }
+        }
+
+        private func observeInterruptions() {
+            let center = NotificationCenter.default
+            observers.append(center.addObserver(forName: AVCaptureSession.wasInterruptedNotification,
+                               object: session, queue: .main) { [weak self] note in
+                let raw = note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+                let reason = raw.flatMap(AVCaptureSession.InterruptionReason.init(rawValue:))
+                self?.report(Self.message(for: reason))
+            })
+            observers.append(center.addObserver(forName: AVCaptureSession.interruptionEndedNotification,
+                               object: session, queue: .main) { [weak self] _ in
+                self?.report(nil)
+            })
+            observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification,
+                               object: session, queue: .main) { [weak self] _ in
+                self?.report("The camera stopped. Close this and try again.")
+                self?.queue.async { [weak self] in self?.session.startRunning() }
+            })
+        }
+
+        private static func message(for reason: AVCaptureSession.InterruptionReason?) -> String {
+            switch reason {
+            case .videoDeviceNotAvailableWithMultipleForegroundApps:
+                "The camera is paused while another app shares the screen. Make Sigil full screen to scan."
+            case .videoDeviceInUseByAnotherClient:
+                "Another app is using the camera. Close it, then come back."
+            case .videoDeviceNotAvailableDueToSystemPressure:
+                "The camera is paused because the iPad is too warm. Try again in a moment."
+            default:
+                "The camera is paused. Close this and try again."
+            }
+        }
+
+        private func report(_ problem: String?) {
+            DispatchQueue.main.async { [weak self] in self?.onProblem?(problem) }
         }
 
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
-            // startRunning blocks, so it never belongs on the main thread.
             queue.async { [session] in
-                if !session.isRunning { session.startRunning() }
+                // Before configuration finishes there are no inputs; `configure` starts it.
+                if !session.isRunning, !session.inputs.isEmpty { session.startRunning() }
             }
         }
 
@@ -165,6 +275,10 @@ private struct QRScanner: UIViewControllerRepresentable {
             queue.async { [session] in
                 if session.isRunning { session.stopRunning() }
             }
+        }
+
+        deinit {
+            observers.forEach(NotificationCenter.default.removeObserver)
         }
 
         func metadataOutput(

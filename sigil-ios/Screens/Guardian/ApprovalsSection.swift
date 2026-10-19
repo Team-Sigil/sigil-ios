@@ -13,6 +13,8 @@ struct ApprovalsSection: View {
     /// Shown when nothing is waiting and nothing has just been answered. Nil renders
     /// nothing at all, for a screen where the section should simply disappear.
     var emptyMessage: String?
+    /// Set to show only the question about one request, as the request's detail sheet does.
+    var requestID: String?
 
     @Environment(Store.self) private var store
     @State private var answering: PendingAnswer?
@@ -38,7 +40,7 @@ struct ApprovalsSection: View {
                 noticeBanner(notice)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
-            ForEach(store.questions) { question in
+            ForEach(visibleQuestions) { question in
                 QuestionCard(
                     question: question,
                     dependentName: store.name(of: question.dependentID),
@@ -47,7 +49,7 @@ struct ApprovalsSection: View {
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
-            if store.questions.isEmpty, notice == nil, let emptyMessage {
+            if visibleQuestions.isEmpty, notice == nil, let emptyMessage {
                 nothingWaiting(emptyMessage)
             }
         }
@@ -72,6 +74,11 @@ struct ApprovalsSection: View {
                 answer(pending)
             }
         }
+    }
+
+    private var visibleQuestions: [GuardianQuestion] {
+        guard let requestID else { return store.questions }
+        return store.questions.filter { $0.requestID == requestID }
     }
 
     /// Shown when the agent is handling everything itself, which is the normal state.
@@ -112,6 +119,25 @@ struct ApprovalsSection: View {
         .cardStyle(padding: 14)
     }
 
+    private static func noticeText(_ pending: PendingAnswer, next: Decision?, name: String) -> String {
+        let signed = pending.approve
+            ? "Approved \(pending.amount?.compact ?? "") and signed."
+            : "Declined and signed."
+        guard let next else {
+            return "\(signed) The agent couldn't run just now; it will act on your answer when it does."
+        }
+        switch next.outcome {
+        case .sentFull, .sentPartial:
+            return "\(signed) \(next.amountSent.compact) was sent to \(name)."
+        case .transferPending:
+            return "\(signed) \(next.amountSent.compact) is on its way to \(name)."
+        case .declined:
+            return "\(signed) \(name) has been told."
+        default:
+            return "\(signed) \(next.summaryForGuardian ?? next.replyToDependent)"
+        }
+    }
+
     /// Chooses the answer and takes a nonce for it, then shows the guardian the exact text
     /// their wallet will sign. A nonce is single use and 5 minutes old at most, so it is
     /// taken per attempt and never reused (SEC-09).
@@ -129,22 +155,25 @@ struct ApprovalsSection: View {
 
     private func answer(_ pending: PendingAnswer) {
         Task {
-            let ok = await store.answer(
+            let result = await store.answer(
                 pending.question,
                 approve: pending.approve,
                 amount: pending.amount,
                 nonce: pending.nonce
             )
-            guard ok else { return }
+            guard let next = result else {
+                // Cancelled in Phantom leaves no problem; anything else says what went wrong.
+                if let problem = store.problem {
+                    withAnimation(.snappy) { notice = Notice(approved: false, text: problem) }
+                }
+                return
+            }
             // The store has already reloaded, so the card is gone: the outcome is reported
-            // here rather than in the card that produced it.
-            let name = store.name(of: pending.question.dependentID)
+            // here rather than in the card that produced it, from what the agent did next.
             withAnimation(.snappy) {
                 notice = Notice(
                     approved: pending.approve,
-                    text: pending.approve
-                        ? "Approved and signed. \(pending.amount?.compact ?? "") is on its way to \(name)."
-                        : "Declined. \(name) has been told why."
+                    text: Self.noticeText(pending, next: next, name: store.name(of: pending.question.dependentID))
                 )
             }
         }

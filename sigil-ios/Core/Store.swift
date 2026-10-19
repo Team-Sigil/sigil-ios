@@ -30,6 +30,14 @@ final class Store {
 
     /// One request's conversation, fetched when a screen shows it.
     var threads: [String: [ThreadEntry]] = [:]
+    /// Receipts attached to a request, loaded with its thread.
+    var proofsByRequest: [String: [Proof]] = [:]
+    /// Request details already read, by request id. The gateway allows 30 calls a minute per
+    /// session, so a settled request is read once and kept, rather than on every reload.
+    private var detailCache: [String: RequestDetailDTO] = [:]
+    /// Whose reads the cache holds. A guardian's details carry their summaries, so nothing
+    /// cached survives into another wallet's session on the same device.
+    private var cacheOwner: String?
 
     var loading = false
     /// The last failure, in the gateway's own words.
@@ -62,7 +70,9 @@ final class Store {
     private func reloadSoon() {
         pendingReload?.cancel()
         pendingReload = Task {
-            try? await Task.sleep(for: .milliseconds(400))
+            // Events come in bursts (a question, a message, a transfer), and every reload
+            // costs a dozen calls against a 30-a-minute limit, so a burst is one reload.
+            try? await Task.sleep(for: .milliseconds(1_500))
             guard !Task.isCancelled else { return }
             await load()
         }
@@ -106,7 +116,7 @@ final class Store {
 
     func budget(for familyID: String) -> Budget? { budgets[familyID] }
 
-    /// "Weekly · $150" for a dependent card.
+    /// "Weekly · ฿150" for a dependent card.
     func planText(for familyID: String, short: Bool = false) -> String {
         guard let policy = policy(for: familyID) else {
             return short ? "No policy yet" : "No policy set yet"
@@ -193,9 +203,32 @@ final class Store {
 
     // MARK: Loading
 
+    /// The load in flight, if any. Launch alone asks for two (the session restore and the
+    /// tab view appearing), and two at once are ~36 calls against the gateway's 30 a
+    /// minute: the overflow is refused and whatever it was (the open questions, say)
+    /// silently goes missing. So a load already running is joined, not repeated.
+    private var inflightLoad: Task<Void, Never>?
+
     /// Everything the current screen set needs. Called on appear and after any change.
     func load() async {
+        if let inflightLoad {
+            await inflightLoad.value
+            return
+        }
+        let task = Task { await performLoad() }
+        inflightLoad = task
+        await task.value
+        inflightLoad = nil
+    }
+
+    private func performLoad() async {
         guard session.signedIn else { return }
+        if cacheOwner != session.wallet {
+            detailCache = [:]
+            threads = [:]
+            proofsByRequest = [:]
+            cacheOwner = session.wallet
+        }
         loading = true
         defer { loading = false }
 
@@ -229,8 +262,9 @@ final class Store {
             for family in families {
                 let api = session.api(for: family.id)
                 let isGuardian = session.role == .guardian
+                let cached = detailCache
                 group.addTask {
-                    (family.id, await Self.loadFamily(api: api, asGuardian: isGuardian))
+                    (family.id, await Self.loadFamily(api: api, asGuardian: isGuardian, cached: cached))
                 }
             }
             for await (familyID, loaded) in group {
@@ -256,16 +290,43 @@ final class Store {
     private struct FamilyLoad {
         var budget: Budget?
         var policy: Policy?
-        var activity: [ActivityItem] = []
-        var obligations: [ProofObligation] = []
-        var questions: [GuardianQuestion] = []
+        // Nil means the read failed (a 429, say), and what is on screen stays: a failed
+        // read is not the same as nothing waiting.
+        var activity: [ActivityItem]?
+        var obligations: [ProofObligation]?
+        var questions: [GuardianQuestion]?
         var sentThisMonth: Units = .zero
         var requestsThisMonth = 0
+        var details: [String: RequestDetailDTO] = [:]
+    }
+
+    /// At most this many request details are read per family per load, newest first, so a
+    /// reload stays well inside the gateway's rate limit. Anything not read this time keeps
+    /// its cached detail and is read on a later load.
+    private static let maxDetailReads = 8
+
+    /// Whether a request's detail can still change without its `already_sent` changing:
+    /// anything still waiting on someone, or with a receipt still owed.
+    private static func isSettled(_ detail: RequestDetailDTO, request: RequestDTO,
+                                  owing: Set<String>) -> Bool {
+        guard detail.alreadySent == request.alreadySent, !owing.contains(request.id),
+              let outcome = detail.decision.map({ Outcome(apiValue: $0.outcome) }) else {
+            return false
+        }
+        switch outcome {
+        case .sentFull, .sentPartial, .declined, .blocked, .outOfScope,
+             .receiptAccepted, .receiptRejected:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Stays on the main actor: every step here is awaited network I/O, which suspends
     /// rather than blocking, and the work it does in between is assembling small structs.
-    private static func loadFamily(api: SigilAPI, asGuardian: Bool) async -> FamilyLoad? {
+    private static func loadFamily(
+        api: SigilAPI, asGuardian: Bool, cached: [String: RequestDetailDTO]
+    ) async -> FamilyLoad? {
         async let budgetTask = try? api.budget()
         async let policyTask = try? api.activePolicy()
         async let requestsTask = try? api.requests()
@@ -279,28 +340,49 @@ final class Store {
             loaded.policy = Policy(dto, familyID: api.familyID ?? "")
         }
 
-        let requests = await requestsTask ?? []
+        let fetchedRequests = await requestsTask
+        let requests = fetchedRequests ?? []
         let history = await historyTask
         let transfers = history?.transfers ?? []
         let transfersByRequest = Dictionary(
             transfers.compactMap { transfer in transfer.requestId.map { ($0, transfer) } },
-            uniquingKeysWith: { first, _ in first }
+            // The latest transfer is the one the latest decision is about.
+            uniquingKeysWith: { a, b in
+                (Dates.parse(a.createdAt) ?? .distantPast) >= (Dates.parse(b.createdAt) ?? .distantPast) ? a : b
+            }
         )
 
+        let fetchedObligations = await obligationsTask
+        let obligations = fetchedObligations ?? []
+        let owing = Set(obligations.map(\.requestId))
+
         // The list endpoint carries no decisions, and `GET /history` carries no reply, so
-        // the rows come from each request's own detail. They are independent, so they are
-        // fetched together.
+        // the rows come from each request's own detail. Settled ones come from the cache;
+        // the rest are read, newest first, and a read that fails (a 429, say) falls back to
+        // what was cached rather than losing the decision.
         var details: [String: RequestDetailDTO] = [:]
+        var toRead: [String] = []
+        let newestFirst = requests.sorted {
+            (Dates.parse($0.createdAt) ?? .distantPast) > (Dates.parse($1.createdAt) ?? .distantPast)
+        }
+        for request in newestFirst {
+            if let detail = cached[request.id] {
+                details[request.id] = detail
+                if isSettled(detail, request: request, owing: owing) { continue }
+            }
+            toRead.append(request.id)
+        }
         await withTaskGroup(of: RequestDetailDTO?.self) { group in
-            for request in requests.prefix(30) {
-                group.addTask { try? await api.request(id: request.id) }
+            for id in toRead.prefix(maxDetailReads) {
+                group.addTask { try? await api.request(id: id) }
             }
             for await detail in group {
                 if let detail { details[detail.id] = detail }
             }
         }
+        loaded.details = details
 
-        loaded.activity = requests.compactMap { request in
+        loaded.activity = fetchedRequests == nil ? nil : requests.compactMap { request in
             ActivityItem(
                 request: request,
                 detail: details[request.id],
@@ -320,8 +402,7 @@ final class Store {
             .filter { (Dates.parse($0.createdAt) ?? .distantPast) >= monthStart }
             .count
 
-        let obligations = await obligationsTask ?? []
-        loaded.obligations = obligations.map { dto in
+        loaded.obligations = fetchedObligations == nil ? nil : obligations.map { dto in
             ProofObligation(
                 id: dto.id,
                 requestID: dto.requestId,
@@ -333,7 +414,7 @@ final class Store {
             )
         }
 
-        loaded.questions = (await questionsTask ?? []).map { dto in
+        loaded.questions = (await questionsTask)?.map { dto in
             GuardianQuestion(
                 dto,
                 familyID: api.familyID ?? "",
@@ -346,12 +427,41 @@ final class Store {
     private func apply(_ loaded: FamilyLoad, to familyID: String) {
         if let budget = loaded.budget { budgets[familyID] = budget }
         if let policy = loaded.policy { policies[familyID] = policy }
-        activityByFamily[familyID] = loaded.activity
-        obligationsByFamily[familyID] = loaded.obligations
-        monthly[familyID] = (loaded.sentThisMonth, loaded.requestsThisMonth)
+        if let activity = loaded.activity {
+            activityByFamily[familyID] = activity
+            monthly[familyID] = (loaded.sentThisMonth, loaded.requestsThisMonth)
+        }
+        if let obligations = loaded.obligations { obligationsByFamily[familyID] = obligations }
+        detailCache.merge(loaded.details) { _, new in new }
+        if let loadedQuestions = loaded.questions {
+            replaceQuestions(loadedQuestions, of: familyID)
+        }
+    }
+
+    /// One card per request. Each agent run on a waiting request can file another open
+    /// question about it, and only the newest reflects the request as it stands now.
+    private func replaceQuestions(_ new: [GuardianQuestion], of familyID: String) {
         questions.removeAll { $0.dependentID == familyID }
-        questions.append(contentsOf: loaded.questions)
+        questions.append(contentsOf: new)
         questions.sort { ($0.at ?? .distantPast) > ($1.at ?? .distantPast) }
+        var seen: Set<String> = []
+        questions = questions.filter { question in
+            guard let requestID = question.requestID else { return true }
+            return seen.insert(requestID).inserted
+        }
+    }
+
+    /// Reads only one family's open questions: one call, for a screen that knows a request
+    /// is waiting on the guardian but has no question for it.
+    @discardableResult
+    func refreshQuestions(familyID: String) async -> Bool {
+        guard session.role == .guardian,
+              let dtos = try? await session.api(for: familyID).questions() else { return false }
+        replaceQuestions(dtos.map { dto in
+            GuardianQuestion(dto, familyID: familyID,
+                             request: dto.requestId.flatMap { detailCache[$0] })
+        }, of: familyID)
+        return true
     }
 
     /// Per family: what went out this month and how many times it was asked.
@@ -370,9 +480,20 @@ final class Store {
     }
 
     /// The thread of one request: what was said, by whom, in order.
-    func loadThread(_ requestID: String) async {
-        guard let detail = try? await session.api.request(id: requestID) else { return }
+    /// A guardian may have several families, so the request is read under its own one.
+    @discardableResult
+    func loadThread(_ requestID: String, familyID: String? = nil) async -> Bool {
+        let api = familyID.map { session.api(for: $0) } ?? session.api
+        guard let detail = try? await api.request(id: requestID) else { return false }
+        detailCache[requestID] = detail
         threads[requestID] = detail.thread.map(ThreadEntry.init)
+        proofsByRequest[requestID] = detail.proofs.map(Proof.init)
+        return true
+    }
+
+    /// The open question about a request, if the guardian still has to answer it.
+    func question(forRequest requestID: String) -> GuardianQuestion? {
+        questions.first { $0.requestID == requestID }
     }
 
     /// The guardian's wallet, which is all a dependent is told about them.
@@ -688,10 +809,14 @@ final class Store {
 
     /// Answers a question with the guardian's signature. The gateway rebuilds the text
     /// from its own records, so this has to match byte for byte (SEC-05).
+    /// Nil when nothing was recorded (cancelled in Phantom, or refused); otherwise the
+    /// agent's next move, which the gateway runs straight after the answer. That decision
+    /// is nil only when the agent couldn't run, and the answer still stands.
     func answer(
         _ question: GuardianQuestion, approve: Bool, amount: Units?, nonce: String? = nil
-    ) async -> Bool {
-        await signed(
+    ) async -> Decision?? {
+        var next: Decision?
+        let ok = await signed(
             purpose: "answer-question", family: question.dependentID, nonce: nonce
         ) { nonce, family in
             SignedMessage.answerQuestion(
@@ -699,11 +824,13 @@ final class Store {
                 amount: approve ? amount : nil, nonce: nonce
             )
         } call: { api, nonce, signature in
-            _ = try await api.answerQuestion(
+            let answered = try await api.answerQuestion(
                 id: question.id, approve: approve, amount: approve ? amount : nil,
                 note: nil, nonce: nonce, signature: signature
             )
+            next = answered.decision.map(Decision.init)
         }
+        return ok ? .some(next) : nil
     }
 
     func setFrozen(_ frozen: Bool, familyID: String, nonce: String? = nil) async -> Bool {
@@ -927,16 +1054,37 @@ extension ActivityItem {
     ) {
         let decision = detail?.decision
         let asked = request.amountRequested.map(Units.init(raw:)) ?? .zero
-        let sent = Units(raw: max(decision?.amountSent ?? 0, request.alreadySent))
+        var sent = Units(raw: max(decision?.amountSent ?? 0, request.alreadySent))
+        // No decision is not the same as money on its way: only the gateway's own
+        // `transfer_pending` may say that.
+        var outcome = decision.map { Outcome(apiValue: $0.outcome) } ?? .awaitingDecision
+        var reply = decision?.replyToDependent ?? "Still being looked at."
+
+        // A decision is a record of the agent's run and is never rewritten, so one that
+        // ended `transfer_pending` stays that way after the gateway's retry job settles the
+        // transfer. The transfer's own status is the truth about where the money is.
+        if outcome == .transferPending, let transfer {
+            switch TransferStatus(rawValue: transfer.status) {
+            case .sent:
+                sent = max(sent, Units(raw: transfer.amount))
+                outcome = asked > .zero && sent < asked ? .sentPartial : .sentFull
+            case .failed, .blocked:
+                outcome = .blocked
+                reply = "The transfer didn't go through, so no money moved."
+            case .pending, nil:
+                break
+            }
+        }
+
         self.init(
             id: request.id,
-            outcome: decision.map { Outcome(apiValue: $0.outcome) } ?? .transferPending,
+            outcome: outcome,
             title: Self.title(from: request.message),
             dependentID: familyID,
             amount: asked,
             amountSent: sent,
             category: transfer.flatMap { Category(rawValue: $0.category) } ?? .other,
-            reply: decision?.replyToDependent ?? "Still being looked at.",
+            reply: reply,
             summaryForGuardian: decision?.summaryForGuardian,
             emergencyClaimed: request.emergencyClaimed,
             time: Dates.ago(request.createdAt),

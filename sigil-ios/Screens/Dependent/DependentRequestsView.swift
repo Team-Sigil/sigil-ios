@@ -7,8 +7,7 @@ struct DependentRequestsView: View {
 
     @Environment(Store.self) private var store
     @State private var filter: Filter = .all
-    @State private var retrying = false
-    @State private var retryNote: String?
+    @State private var selected: ActivityItem?
 
     private var me: Dependent? { store.me }
     private var guardianName: String { store.guardianName }
@@ -23,6 +22,7 @@ struct DependentRequestsView: View {
             switch filter {
             case .all: true
             case .waiting: item.outcome.needsGuardian || item.outcome == .askedProof
+                || item.outcome == .awaitingDecision
             case .sent: item.outcome.isMoneyMoving
             case .stopped: item.outcome.isStopped
             }
@@ -62,11 +62,25 @@ struct DependentRequestsView: View {
                 LabeledSection(title: "This week") {
                     ListCard {
                         ForEach(history) { item in
-                            historyRow(item)
+                            Button { selected = item } label: {
+                                historyRow(item)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Shows the details")
                         }
                     }
                 }
+            } else if pending == nil {
+                Text(filter == .all ? "No requests yet. Tap New to ask for money." : "Nothing here.")
+                    .font(Typo.body(14))
+                    .foregroundStyle(Palette.muted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
             }
+        }
+        .refreshable { await store.load() }
+        .sheet(item: $selected) { item in
+            RequestDetailSheet(item: item, isGuardian: false) { tab = .home }
         }
     }
 
@@ -80,6 +94,8 @@ struct DependentRequestsView: View {
                 Spacer()
                 StatusBadge(outcome: item.outcome, guardianName: guardianName)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { selected = item }
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array((store.threads[item.id] ?? []).enumerated()), id: \.element.id) { index, entry in
@@ -92,47 +108,21 @@ struct DependentRequestsView: View {
                 }
                 TimelineStep(state: .current, lineColor: nil) {
                     Text("Waiting for \(guardianName)").font(Typo.body(14, .semibold))
-                    Text("It needs her wallet signature, so only she can decide it.")
+                    Text("It needs their wallet signature, so only they can decide it.")
                 }
             }
 
-            // The one thing a dependent can genuinely do from here. A request can sit
-            // waiting on something that has since changed — the reservoir was empty when
-            // it was asked and has since been topped up — and this has the agent look at
-            // it again. It cannot move money by itself: whatever the agent decides still
-            // goes through the engine, and a transfer that already happened is idempotent.
-            Button(retrying ? "Asking the agent…" : "Ask the agent to look again") {
-                retry(item)
-            }
-            .buttonStyle(SecondaryButtonStyle())
-            .disabled(retrying)
+            // Deliberately nothing that runs the agent again: every run on a request that
+            // is waiting for the guardian files another question for them to answer.
+            Text("Nothing to do but wait. You'll see the answer here as soon as they sign.")
+                .font(Typo.body(12))
+                .foregroundStyle(Palette.muted)
+                .lineSpacing(2)
 
-            if let note = retryNote {
-                Text(note)
-                    .font(Typo.body(12))
-                    .foregroundStyle(Palette.muted)
-                    .lineSpacing(2)
-            }
+            LinkButton(title: "See full details") { selected = item }
         }
         .padding(2)
         .cardStyle(radius: 24)
-    }
-
-    /// Runs the agent again on a request that is still waiting. The outcome lands in the
-    /// store, so the card redraws itself; this only reports when nothing changed.
-    private func retry(_ item: ActivityItem) {
-        Task {
-            retrying = true
-            retryNote = nil
-            defer { retrying = false }
-            guard let decision = await store.retry(requestID: item.id) else {
-                retryNote = store.problem ?? "The agent didn't answer. Try again in a moment."
-                return
-            }
-            if decision.outcome.needsGuardian {
-                retryNote = "Still with \(guardianName) — only her signature can decide it."
-            }
-        }
     }
 
     private func historyRow(_ item: ActivityItem) -> some View {
@@ -152,8 +142,10 @@ struct DependentRequestsView: View {
                     .strikethrough(stopped)
                 StatusBadge(outcome: item.outcome, compact: true, guardianName: guardianName)
             }
+            Chevron()
         }
         .padding(.vertical, 14)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 }
