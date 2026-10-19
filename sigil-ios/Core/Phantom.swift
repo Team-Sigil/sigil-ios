@@ -109,10 +109,27 @@ final class Phantom {
     }
 
     /// Has Phantom sign the exact text, and returns the base58 signature.
-    ///
+    func sign(_ message: String) async throws -> String {
+        try await reconnectingIfRevoked { try await self.signOnce(message) }
+    }
+
+    /// The saved session outlives anything Phantom does: removing Sigil from Phantom's
+    /// connected apps revokes it, and every request then fails with 4100 until the app
+    /// connects again. So a revoked session is dropped, a new one made, and the request
+    /// tried once more.
+    private func reconnectingIfRevoked<T>(_ request: () async throws -> T) async throws -> T {
+        do {
+            return try await request()
+        } catch PhantomError.unauthorized {
+            disconnect()
+            try await connect()
+            return try await request()
+        }
+    }
+
     /// `display: "utf8"` is what makes Phantom show the readable text rather than bytes,
     /// so the person approves something they can actually read.
-    func sign(_ message: String) async throws -> String {
+    private func signOnce(_ message: String) async throws -> String {
         guard let session, let sharedKey else { throw PhantomError.notConnected }
 
         let request = SignRequest(
@@ -156,6 +173,10 @@ final class Phantom {
     /// not supported"), and it only ever reached mainnet anyway. So the app broadcasts the
     /// signed bytes to devnet itself — `Devnet.send` — and confirms them there.
     func signTransaction(_ transaction: String) async throws -> String {
+        try await reconnectingIfRevoked { try await self.signTransactionOnce(transaction) }
+    }
+
+    private func signTransactionOnce(_ transaction: String) async throws -> String {
         guard let session, let sharedKey else { throw PhantomError.notConnected }
 
         let body = try JSONSerialization.data(withJSONObject: [
@@ -222,9 +243,12 @@ final class Phantom {
         if let code = values["errorCode"] {
             // 4001 is the user tapping Cancel, which is not a failure worth shouting about.
             let message = values["errorMessage"] ?? "Phantom couldn't do that."
-            pending.continuation.resume(
-                throwing: code == "4001" ? PhantomError.cancelled : PhantomError.phantom(message)
-            )
+            let error: PhantomError = switch code {
+            case "4001": .cancelled
+            case "4100": .unauthorized
+            default: .phantom("Phantom: \(message) (code \(code))")
+            }
+            pending.continuation.resume(throwing: error)
             return
         }
         pending.continuation.resume(returning: values)
@@ -298,6 +322,9 @@ enum PhantomError: Error {
     case cancelled
     case superseded
     case badReply
+    /// 4100: Phantom no longer recognises this app's session, e.g. after Sigil was removed
+    /// from Phantom's connected apps. Reconnecting gives a fresh one.
+    case unauthorized
     case phantom(String)
 
     var readable: String {
@@ -307,6 +334,7 @@ enum PhantomError: Error {
         case .cancelled: "You cancelled that in Phantom."
         case .superseded: "Another request replaced that one."
         case .badReply: "Phantom's reply couldn't be read."
+        case .unauthorized: "Phantom no longer recognises Sigil. Connect again."
         case .phantom(let message): message
         }
     }

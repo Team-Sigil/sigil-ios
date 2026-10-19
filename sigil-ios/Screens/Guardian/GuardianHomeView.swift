@@ -5,15 +5,16 @@ struct GuardianHomeView: View {
     @Environment(AppSession.self) private var session
     @Environment(Store.self) private var store
     @State private var confirmingFreeze = false
+    @State private var selectedActivity: ActivityItem?
 
     var body: some View {
         Screen(spacing: 24) {
             header
             agentCard
-            approvals
             dependents
             recentActivity
         }
+        .refreshable { await store.load() }
         .sheet(isPresented: $confirmingFreeze) { FreezeSheet() }
     }
 
@@ -159,26 +160,6 @@ struct GuardianHomeView: View {
         .background(Palette.paper.opacity(0.10), in: Capsule())
     }
 
-    // MARK: Approvals
-
-    private var approvals: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text("Needs your approval")
-                    .font(Typo.display(19))
-                    .tracking(-0.2)
-                    .accessibilityAddTraits(.isHeader)
-                if !store.questions.isEmpty {
-                    Text("\(store.questions.count)")
-                        .font(Typo.mono(12, .semibold))
-                        .frame(minWidth: 22, minHeight: 22)
-                        .background(Palette.orange, in: Capsule())
-                }
-            }
-            ApprovalsSection(emptyMessage: "Nothing needs you right now.")
-        }
-    }
-
     // MARK: Dependents
 
     private var dependents: some View {
@@ -218,13 +199,16 @@ struct GuardianHomeView: View {
             }
             ListCard {
                 ForEach(store.allActivity.prefix(3)) { item in
-                    ActivityRow(
+                    TappableActivityRow(
                         item: item,
                         dependentName: store.name(of: item.dependentID),
                         showsGuardianSummary: true
-                    )
+                    ) { selectedActivity = $0 }
                 }
             }
+        }
+        .sheet(item: $selectedActivity) { item in
+            RequestDetailSheet(item: item, isGuardian: true)
         }
     }
 }

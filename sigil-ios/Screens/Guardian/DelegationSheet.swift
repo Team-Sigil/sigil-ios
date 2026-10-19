@@ -82,7 +82,7 @@ struct DelegationSheet: View {
     private var amountField: some View {
         VStack(spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text("$")
+                Text("฿")
                     .font(Typo.mono(36))
                     .foregroundStyle(amount > .zero ? Palette.ink : Palette.dashedChip)
                 TextField("0", text: $digits)
@@ -105,7 +105,7 @@ struct DelegationSheet: View {
                     Button {
                         withAnimation(.snappy) { digits = String(quick) }
                     } label: {
-                        Text("$\(quick)")
+                        Text("฿\(quick)")
                             .font(Typo.body(14, .semibold))
                             .foregroundStyle(Palette.ink)
                             .frame(maxWidth: .infinity)

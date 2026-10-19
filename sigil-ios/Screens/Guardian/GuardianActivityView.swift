@@ -5,6 +5,7 @@ struct GuardianActivityView: View {
 
     @Environment(Store.self) private var store
     @State private var filter: Filter = .all
+    @State private var selected: ActivityItem?
 
     private var groups: [ActivityGroup] {
         store.activityGroups.compactMap { group in
@@ -29,14 +30,6 @@ struct GuardianActivityView: View {
         Screen(spacing: 18) {
             PageTitle(title: "Activity", subtitle: "Every decision the agent made, and why.")
 
-            // The rows below are a record; a question is a job. Anything still waiting on
-            // the guardian is answerable right here, rather than only on the home screen.
-            if !store.questions.isEmpty {
-                LabeledSection(title: "Waiting for you") {
-                    ApprovalsSection()
-                }
-            }
-
             HStack(spacing: 8) {
                 statTile(sentLabel, store.sentThisMonth.compact, dark: true)
                 statTile("Needs you", "\(allItems.filter { $0.outcome.needsGuardian }.count)")
@@ -60,16 +53,20 @@ struct GuardianActivityView: View {
                     LabeledSection(title: group.label) {
                         ListCard {
                             ForEach(group.items) { item in
-                                ActivityRow(
+                                TappableActivityRow(
                                     item: item,
                                     dependentName: store.name(of: item.dependentID),
                                     showsGuardianSummary: true
-                                )
+                                ) { selected = $0 }
                             }
                         }
                     }
                 }
             }
+        }
+        .refreshable { await store.load() }
+        .sheet(item: $selected) { item in
+            RequestDetailSheet(item: item, isGuardian: true)
         }
     }
 

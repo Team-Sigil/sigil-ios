@@ -110,11 +110,22 @@ final class LiveRequest: Identifiable {
         apply(decision)
     }
 
+    /// Takes a later decision on this request from the store: the guardian answered, or a
+    /// retry settled it. Without this the card would keep saying "with your guardian"
+    /// after the guardian has long since decided. Skipped while a call is still running.
+    func sync(with item: ActivityItem) {
+        guard outcome != nil, item.outcome != .awaitingDecision, !item.outcome.isReceiptCheck,
+              item.outcome != outcome || item.reply != reply else { return }
+        outcome = item.outcome
+        amountSent = item.amountSent
+        reply = item.reply
+    }
+
     private func apply(_ decision: Decision) {
         // A receipt check is not a new decision about the request (gateway app handoff,
         // "Proof after payment"): the money already went out, so the outcome and the amount
         // stand and only the receipt's own state and the agent's words move. Letting
-        // `receipt_accepted` become the outcome would wipe "Sent $65" off a card that did.
+        // `receipt_accepted` become the outcome would wipe "Sent ฿65" off a card that did.
         if !decision.outcome.isReceiptCheck {
             outcome = decision.outcome
             amountSent = decision.amountSent
@@ -393,7 +404,7 @@ private extension String {
     request.outcome = .sentFull
     request.amountSent = Units(65)
     request.receipt = .owed
-    request.reply = "Sent — $65 for clothing. Send me the receipt once you have paid."
+    request.reply = "Sent — ฿65 for clothing. Send me the receipt once you have paid."
 
     return VStack(spacing: 16) {
         LiveRequestCard(request: request) {}
