@@ -16,7 +16,7 @@ struct GuardianHomeView: View {
             dependents
             recentActivity
         }
-        .sheet(isPresented: $confirmingFreeze) { freezeSheet }
+        .sheet(isPresented: $confirmingFreeze) { FreezeSheet() }
     }
 
     // MARK: Header
@@ -52,14 +52,14 @@ struct GuardianHomeView: View {
             HStack {
                 HStack(spacing: 10) {
                     Circle()
-                        .fill(session.frozen ? Palette.orange : Palette.mint)
+                        .fill(anyFrozen ? Palette.orange : Palette.mint)
                         .frame(width: 10, height: 10)
                         .background(
                             Circle()
-                                .fill((session.frozen ? Palette.orange : Palette.mint).opacity(0.18))
+                                .fill((anyFrozen ? Palette.orange : Palette.mint).opacity(0.18))
                                 .frame(width: 18, height: 18)
                         )
-                    Text(session.frozen ? "Frozen" : "Agent active")
+                    Text(agentStatusText)
                         .font(Typo.body(14, .semibold))
                 }
                 Spacer()
@@ -67,9 +67,9 @@ struct GuardianHomeView: View {
                     confirmingFreeze = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: session.frozen ? "play.fill" : "snowflake")
+                        Image(systemName: "snowflake")
                             .font(.system(size: 11, weight: .bold))
-                        Text(session.frozen ? "Unfreeze" : "Freeze")
+                        Text("Freeze")
                             .font(Typo.body(13, .semibold))
                     }
                     .padding(.horizontal, 14)
@@ -81,7 +81,7 @@ struct GuardianHomeView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(session.frozen ? "Frozen · sent this month" : "Sent this month")
+                Text(anyFrozen ? "Sent this month · some frozen" : "Sent this month")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.mutedOnDark)
                 Text(MockData.sentThisMonth.display)
@@ -116,10 +116,21 @@ struct GuardianHomeView: View {
     }
 
     /// `delegated_remaining` is null when the crypto layer can't be read, and the
-    /// app must say so rather than show a number it made up.
+    /// app must say so rather than show a number it made up. The reservoir is one
+    /// per guardian, shared by every dependent.
     private var reservoirText: String {
         guard let remaining = MockData.reservoirRemaining else { return "Reservoir unavailable" }
-        return "Reservoir \(remaining.compact) left"
+        return "Shared reservoir \(remaining.compact)"
+    }
+
+    private var anyFrozen: Bool { session.frozenCount > 0 }
+
+    private var agentStatusText: String {
+        let frozen = session.frozenCount
+        guard frozen > 0 else { return "Agent active" }
+        return frozen == MockData.dependents.count
+            ? "All frozen"
+            : "\(frozen) of \(MockData.dependents.count) frozen"
     }
 
     private func darkChip(icon: String, text: String) -> some View {
@@ -296,28 +307,6 @@ private struct DependentMiniCard: View {
         .foregroundStyle(Palette.ink)
         .frame(width: 210, alignment: .leading)
         .cardStyle()
-    }
-}
-
-// MARK: Freeze
-
-private extension GuardianHomeView {
-    var freezeSheet: some View {
-        SignatureSheet(
-            title: session.frozen ? "Lift the freeze" : "Freeze all transfers",
-            summary: session.frozen
-                ? "The agent can start sending again, inside the limits you signed."
-                : "Nothing moves until you unfreeze, whatever the agent or the dependents ask for.",
-            message: [
-                "FinGuard:freeze",
-                "family:\(MockData.familyID)",
-                "frozen:\(session.frozen ? "false" : "true")",
-                "nonce:\(MockData.nonce)",
-            ],
-            confirmTitle: session.frozen ? "Sign and unfreeze" : "Sign and freeze"
-        ) {
-            withAnimation(.snappy) { session.frozen.toggle() }
-        }
     }
 }
 

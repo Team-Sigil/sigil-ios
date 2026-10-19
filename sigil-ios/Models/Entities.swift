@@ -5,20 +5,55 @@ enum Role: String {
 }
 
 /// Signed-in state shared by the whole app.
+///
+/// A guardian may support several dependents, each in its own family. Guardian calls
+/// about one dependent carry that family in the `X-Family-Id` header, so the selected
+/// family is session state, not a screen's local state.
 @Observable
 final class AppSession {
     var role: Role?
 
-    /// The guardian's signed kill switch (SEC-17). While frozen the engine refuses
-    /// every transfer, so the whole app reads this one flag.
-    var frozen = false
+    /// `family_ids` from sign-in, oldest first. Empty for a guardian means onboarding.
+    var familyIDs: [String] = []
+
+    /// The family every guardian request is about. Nil until one is chosen.
+    var selectedFamilyID: String?
+
+    /// Freeze is per family (SEC-17): "freeze everyone" is one signature each.
+    private var frozenFamilies: Set<String> = []
+
+    var needsOnboarding: Bool { role == .guardian && familyIDs.isEmpty }
+    var hasSeveralDependents: Bool { familyIDs.count > 1 }
+
+    func isFrozen(_ familyID: String) -> Bool {
+        frozenFamilies.contains(familyID)
+    }
+
+    func setFrozen(_ frozen: Bool, familyID: String) {
+        if frozen {
+            frozenFamilies.insert(familyID)
+        } else {
+            frozenFamilies.remove(familyID)
+        }
+    }
+
+    var frozenCount: Int { frozenFamilies.count }
 
     func signIn(as role: Role) {
-        withAnimation(.easeInOut(duration: 0.3)) { self.role = role }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            self.role = role
+            familyIDs = MockData.dependents.map(\.familyID)
+            selectedFamilyID = familyIDs.first
+        }
     }
 
     func signOut() {
-        withAnimation(.easeInOut(duration: 0.3)) { role = nil }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            role = nil
+            familyIDs = []
+            selectedFamilyID = nil
+            frozenFamilies = []
+        }
     }
 }
 
@@ -32,6 +67,8 @@ struct Guardian: Sendable {
 
 struct Dependent: Identifiable, Sendable {
     let id: String
+    /// Each dependent is their own family, and that id goes in `X-Family-Id`.
+    let familyID: String
     let name: String
     let initials: String
     /// The one address their allowance can reach, registered by guardian
@@ -134,6 +171,9 @@ struct GuardianQuestion: Identifiable, Sendable {
 
 struct Notification: Identifiable, Sendable {
     let id: String
+    /// Nil when the notification is about the guardian as a whole, such as the
+    /// shared reservoir, rather than one dependent.
+    let familyID: String?
     let message: String
     let time: String
     let isRead: Bool

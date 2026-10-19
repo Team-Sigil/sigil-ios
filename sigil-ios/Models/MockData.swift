@@ -5,8 +5,11 @@ import SwiftUI
 /// without changing what they render.
 enum MockData {
     // Ids a signed message carries (gateway "Guardian signatures").
-    static let familyID = "8f2c…a91d"
     static let nonce = "3c0b…77e4"
+
+    /// One reservoir per guardian, shared by every dependent and backed by a single
+    /// Phantom delegation.
+    static let guardianTokenAccount = "6Jn2…qW4r"
 
     static let guardian = Guardian(
         name: "Hnin",
@@ -22,17 +25,17 @@ enum MockData {
 
     static let dependents: [Dependent] = [
         Dependent(
-            id: "mt", name: "Min Thu", initials: "MT", tokenAccount: "9Hq4…2mFe",
+            id: "mt", familyID: "8f2c…a91d", name: "Min Thu", initials: "MT", tokenAccount: "9Hq4…2mFe",
             avatarBackground: Palette.blueSoft, avatarForeground: Palette.blueInk,
             sentThisMonth: Units(460), requestsThisMonth: 11, awaitingGuardian: 1
         ),
         Dependent(
-            id: "sm", name: "Su Myat", initials: "SM", tokenAccount: "5Tc9…vB3n",
+            id: "sm", familyID: "1d47…c05e", name: "Su Myat", initials: "SM", tokenAccount: "5Tc9…vB3n",
             avatarBackground: Palette.orangeSoft, avatarForeground: Palette.orangeInk,
             sentThisMonth: Units(180), requestsThisMonth: 19, awaitingGuardian: 0
         ),
         Dependent(
-            id: "ak", name: "Aung Kyaw", initials: "AK", tokenAccount: "2Yp7…hL6s",
+            id: "ak", familyID: "b903…6f12", name: "Aung Kyaw", initials: "AK", tokenAccount: "2Yp7…hL6s",
             avatarBackground: Palette.graySoft, avatarForeground: Palette.ink,
             sentThisMonth: Units(95), requestsThisMonth: 4, awaitingGuardian: 1
         ),
@@ -44,6 +47,10 @@ enum MockData {
 
     static func name(of id: String) -> String {
         dependent(id).name
+    }
+
+    static func dependent(familyID: String) -> Dependent {
+        dependents.first { $0.familyID == familyID } ?? dependents[0]
     }
 
     // MARK: Policies
@@ -280,10 +287,12 @@ enum MockData {
 
     // MARK: Notifications, summaries, audit
 
+    /// `family_id` is null for anything about the guardian as a whole, such as the
+    /// shared reservoir; those arrive on every stream and are de-duplicated by id.
     static let notifications: [Notification] = [
-        Notification(id: "n-1", message: "Min Thu asked for $180 for textbooks.", time: "8 min", isRead: false),
-        Notification(id: "n-2", message: "The Auditor flagged Aung Kyaw's $85 charger request.", time: "2 h", isRead: false),
-        Notification(id: "n-3", message: "Your reservoir covers about three more weeks.", time: "Yesterday", isRead: true),
+        Notification(id: "n-1", familyID: "8f2c…a91d", message: "Min Thu asked for $180 for textbooks.", time: "8 min", isRead: false),
+        Notification(id: "n-2", familyID: "b903…6f12", message: "The Auditor flagged Aung Kyaw's $85 charger request.", time: "2 h", isRead: false),
+        Notification(id: "n-3", familyID: nil, message: "Your reservoir covers about three more weeks across all three dependents.", time: "Yesterday", isRead: true),
     ]
 
     static let summaries: [WeeklySummary] = [

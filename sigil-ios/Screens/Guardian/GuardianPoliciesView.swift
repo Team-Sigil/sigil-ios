@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct GuardianPoliciesView: View {
+    @Environment(AppSession.self) private var session
     @State private var dependentID = MockData.dependents[0].id
 
     private var policy: Policy { MockData.policy(for: dependentID) }
@@ -14,6 +15,11 @@ struct GuardianPoliciesView: View {
                 options: MockData.dependents.map { ($0.id, $0.name) },
                 selection: $dependentID
             )
+            .onChange(of: dependentID) { _, id in
+                // Every guardian call about one dependent names that family in the
+                // X-Family-Id header, so the selection belongs to the session.
+                session.selectedFamilyID = MockData.dependent(id).familyID
+            }
 
             summaryCard
 
@@ -78,7 +84,7 @@ struct GuardianPoliciesView: View {
 
             guidanceSection
 
-            LabeledSection(title: "Paid from") {
+            LabeledSection(title: "Paid from (shared)") {
                 HStack(spacing: 12) {
                     Image(systemName: "drop.fill")
                         .font(.system(size: 14, weight: .medium))
@@ -87,7 +93,7 @@ struct GuardianPoliciesView: View {
                         .background(Palette.ink, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Your reservoir").font(Typo.body(15, .semibold))
+                        Text("Shared reservoir").font(Typo.body(15, .semibold))
                         Text(reservoirText)
                             .font(Typo.body(12)).foregroundStyle(Palette.muted)
                     }
@@ -202,5 +208,5 @@ struct GuardianPoliciesView: View {
 }
 
 #Preview {
-    GuardianPoliciesView()
+    GuardianPoliciesView().environment(AppSession())
 }
