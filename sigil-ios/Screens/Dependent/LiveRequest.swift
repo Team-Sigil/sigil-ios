@@ -39,8 +39,26 @@ final class LiveRequest: Identifiable {
     private var budget: Budget { MockData.budget(for: dependentID) }
     private var guardianName: String { MockData.guardian.shortName }
 
-    /// True once the money is out and the receipt has not been sent yet.
-    var owesReceipt = false
+    /// Where the owed receipt has got to. The gateway lifts the block only once it has
+    /// accepted the proof, and it refuses an unsigned PDF outright, so sending one is not
+    /// the end of the story.
+    enum ReceiptState: Equatable {
+        case notNeeded
+        case owed
+        case checking
+        case refused(String)
+        case accepted
+    }
+
+    var receipt: ReceiptState = .notNeeded
+
+    /// True while money is out and the receipt has not been accepted.
+    var owesReceipt: Bool {
+        switch receipt {
+        case .notNeeded, .accepted: false
+        case .owed, .checking, .refused: true
+        }
+    }
 
     /// Mirrors the documented decision order closely enough to exercise every
     /// affordance from the simulator. The real answer comes from the agent.
@@ -63,7 +81,7 @@ final class LiveRequest: Identifiable {
             // before you're paid — and the receipt is owed afterwards.
             outcome = .sentFull
             amountSent = amount
-            owesReceipt = true
+            receipt = .owed
             reply = "Sent — \(amount.compact) for \(category.label.lowercased()). Anything over \(policy.proofThreshold.compact) needs a receipt afterwards, so send me one once you've paid. I can't send anything more until you do."
         } else {
             outcome = .sentFull
@@ -83,12 +101,26 @@ final class LiveRequest: Identifiable {
         reply = "I've asked \(guardianName), with what you told me and my own view. You'll get a notification when she answers."
     }
 
-    /// Settles the owed receipt. The real block lifts only once the gateway accepts the
-    /// proof, so nothing here is decided by the app.
-    func attachReceipt(from source: ProofSource) {
-        owesReceipt = false
+    /// Sends the owed receipt off to be checked. Nothing here decides the outcome: the
+    /// gateway verifies the capture or the shop's signature on the PDF and only then lifts
+    /// the block, so the app shows it being checked and reports what came back.
+    func sendReceipt(from source: ProofSource) async {
+        receipt = .checking
+        try? await Task.sleep(for: .milliseconds(1_200))
+
+        // An unsigned PDF is refused outright, so the dependent is told rather than left
+        // waiting. `-refuseProof` forces that path for checking it on the simulator.
+        let refuse = source == .document
+            && ProcessInfo.processInfo.arguments.contains("-refuseProof")
+        if refuse {
+            receipt = .refused(
+                "That PDF isn't signed by the shop, so I can't use it. Ask them for the signed copy, or photograph a paper receipt."
+            )
+            return
+        }
+        receipt = .accepted
         let what = source == .camera ? "receipt" : "order confirmation"
-        reply = "Thanks — that \(what) covers \(amount.compact). You're all clear to ask for money again."
+        reply = "Thanks — that \(what) covers \(amount.compact). You're clear to ask for money again."
     }
 }
 
@@ -139,13 +171,45 @@ struct LiveRequestCard: View {
         .cardStyle(radius: 24)
     }
 
+    private var checkingReceipt: some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small).tint(Palette.blueInk)
+            Text("Checking your receipt…")
+                .font(Typo.body(14, .medium))
+                .foregroundStyle(Palette.blueInk)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Palette.blueSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    /// A refused receipt leaves the money still owed, so the reason comes with another go.
+    private func refusedReceipt(_ reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Palette.orangeInk)
+                Text(reason)
+                    .font(Typo.body(14))
+                    .foregroundStyle(Palette.orangeInk)
+                    .lineSpacing(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Palette.orangeSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            receiptActions
+        }
+    }
+
     /// Two ways to send a receipt: the app's camera for a paper one, or the PDF for an
     /// online order. No gallery picker, and screenshots are not accepted.
     private var receiptActions: some View {
         VStack(spacing: 10) {
             ForEach(ProofSource.allCases) { source in
                 Button {
-                    withAnimation(.snappy) { request.attachReceipt(from: source) }
+                    Task { await request.sendReceipt(from: source) }
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: source.icon)
@@ -218,9 +282,14 @@ struct LiveRequestCard: View {
             }
 
         case .sentFull, .sentPartial:
-            if request.owesReceipt {
+            switch request.receipt {
+            case .owed:
                 receiptActions
-            } else {
+            case .checking:
+                checkingReceipt
+            case .refused(let reason):
+                refusedReceipt(reason)
+            case .notNeeded, .accepted:
                 Button("Done", action: onDone)
                     .buttonStyle(SecondaryButtonStyle())
             }
