@@ -197,3 +197,10 @@ struct AuditLogEntry: Identifiable, Sendable {
     let time: String
     let hashPrefix: String
 }
+
+extension Array {
+    /// Bounds-checked access, for reading launch arguments in pairs.
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
