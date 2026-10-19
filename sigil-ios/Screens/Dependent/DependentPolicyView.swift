@@ -1,36 +1,18 @@
 import SwiftUI
 
 struct DependentPolicyView: View {
-    @Environment(Store.self) private var store
-
-    private var policy: Policy? { store.policy }
-    private var guardianName: String { store.guardianName }
+    private let me = MockData.dependents[0]
+    private var policy: Policy { MockData.policy(for: me.id) }
+    private var limits: PolicyBody { policy.body }
+    private var budget: Budget { MockData.budget(for: me.id) }
+    private var guardianName: String { MockData.guardian.shortName }
 
     var body: some View {
         Screen(spacing: 22) {
-            PageTitle(
-                title: "Your policy",
-                subtitle: policy.map { "Set by \(guardianName) · version \($0.version)" }
-                    ?? "Nothing signed yet"
-            )
+            PageTitle(title: "Your policy",
+                      subtitle: "Set by \(guardianName) · version \(policy.version) · \(policy.activatedAt)")
 
-            if let policy {
-                content(policy.body)
-            } else {
-                Text("\(guardianName.capitalizedFirstLetter) hasn't signed a policy for you yet.")
-                    .font(Typo.body(15))
-                    .foregroundStyle(Palette.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 24)
-            }
-        }
-        .task { await store.load() }
-    }
-
-    @ViewBuilder
-    private func content(_ limits: PolicyBody) -> some View {
-
-            allowanceCard(limits)
+            allowanceCard
 
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "How the agent decides")
@@ -38,11 +20,11 @@ struct DependentPolicyView: View {
                 ruleCard(outcome: .sentFull, title: "Sent on its own") {
                     Text("Requests up to \(limits.maxPerRequest.compact), as long as you're still inside your weekly \(limits.weeklyCap.compact).")
                 }
-                ruleCard(outcome: .askedProof, title: "Needs a receipt afterwards") {
-                    Text("Anything over \(limits.proofThreshold.compact) is sent first, then you send the receipt — photographed in the app, or the PDF of an online order. Until it's accepted you can't ask for more.")
+                ruleCard(outcome: .askedProof, title: "Needs proof of the price") {
+                    Text("Anything over \(limits.proofThreshold.compact). Show a price tag or a quote before you buy, or a receipt if you've already paid — photographed in the app.")
                 }
                 ruleCard(outcome: .askedGuardian, title: "Goes to \(guardianName) first") {
-                    Text("Anything over \(limits.maxPerRequest.compact), or past your weekly limit. They answer with their wallet, so only they can approve it.")
+                    Text("Anything over \(limits.maxPerRequest.compact), or past your weekly limit. She answers with her wallet, so only she can approve it.")
                 }
                 ruleCard(outcome: .blocked, title: "Never sent") {
                     FlowLayout(spacing: 6) {
@@ -72,8 +54,9 @@ struct DependentPolicyView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 4)
         }
+    }
 
-    private func allowanceCard(_ limits: PolicyBody) -> some View {
+    private var allowanceCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -81,12 +64,10 @@ struct DependentPolicyView: View {
                     Text(limits.weeklyCap.compact).font(Typo.mono(36)).tracking(-1)
                 }
                 Spacer()
-                if let budget = store.budget {
-                    Text(budget.resetText).font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
-                }
+                Text(budget.resetText).font(Typo.body(13)).foregroundStyle(Palette.textSecondary)
             }
-            ProgressBar(fraction: store.budget?.fraction ?? 0, fill: Palette.accent)
-            Text("\(store.budget?.spent.compact ?? "$0") used · \(store.budget?.remaining.compact ?? "$0") left")
+            ProgressBar(fraction: budget.fraction, fill: Palette.accent)
+            Text("\(budget.spent.compact) used · \(budget.remaining.compact) left")
                 .font(Typo.mono(12, .regular))
                 .foregroundStyle(Palette.textSecondary)
         }
@@ -134,6 +115,5 @@ struct DependentPolicyView: View {
 }
 
 #Preview {
-    let session = AppSession()
-    return DependentPolicyView().environment(Store(session: session)).environment(session)
+    DependentPolicyView()
 }

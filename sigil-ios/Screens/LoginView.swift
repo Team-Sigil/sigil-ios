@@ -2,6 +2,13 @@ import SwiftUI
 
 struct LoginView: View {
     @Environment(AppSession.self) private var session
+    @State private var role: Role = .guardian
+    @State private var email = ""
+    @State private var password = ""
+    @FocusState private var focused: Field?
+
+    private enum Field { case email, password }
+
     var body: some View {
         VStack(spacing: 0) {
             hero
@@ -50,50 +57,62 @@ struct LoginView: View {
         .padding(.bottom, 40)
     }
 
-    /// Sign-In With Solana: no password anywhere. The wallet signs the gateway's text,
-    /// and the gateway decides from the address whether this is a guardian or a dependent,
-    /// so the app never picks a role.
     private var form: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 18) {
+            SegmentedPill(
+                options: [(Role.guardian, "Guardian"), (Role.dependent, "Dependent")],
+                selection: $role
+            )
+
+            VStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    fieldLabel("Email")
+                    TextField("you@example.com", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.next)
+                        .focused($focused, equals: .email)
+                        .onSubmit { focused = .password }
+                        .modifier(InputFieldStyle())
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        fieldLabel("Password")
+                        Spacer()
+                        Button("Forgot password?") {}
+                            .font(Typo.body(13, .medium))
+                            .foregroundStyle(Palette.ink)
+                    }
+                    SecureField("Your password", text: $password)
+                        .textContentType(.password)
+                        .submitLabel(.go)
+                        .focused($focused, equals: .password)
+                        .onSubmit { session.signIn(as: role) }
+                        .modifier(InputFieldStyle())
+                }
+            }
+
             Button {
-                Task { await session.signIn() }
+                session.signIn(as: role)
             } label: {
                 HStack(spacing: 8) {
-                    if session.busy {
-                        ProgressView().controlSize(.small).tint(.white)
-                        Text("Signing you in…")
-                    } else {
-                        Image(systemName: "wallet.pass").font(.system(size: 16, weight: .semibold))
-                        Text("Continue with your wallet")
-                    }
+                    Text("Sign in as \(role == .guardian ? "guardian" : "dependent")")
+                    Image(systemName: "arrow.right").font(.system(size: 15, weight: .semibold))
                 }
             }
             .buttonStyle(PrimaryButtonStyle(height: 54))
-            .disabled(session.busy)
+            .contentTransition(.opacity)
 
-            if let problem = session.problem {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.top, 2)
-                    Text(problem).font(Typo.body(13)).lineSpacing(2)
-                }
-                .foregroundStyle(Palette.danger)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(
-                    Palette.dangerSoft,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
-                .transition(.opacity)
+            HStack(spacing: 4) {
+                Text("New to Sigil?").foregroundStyle(Palette.textSecondary)
+                Button("Create an account") {}
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Palette.ink)
             }
-
-            Text("Your wallet signs one line of text to prove it's you. Nothing moves without a signature, and Sigil never holds your money.")
-                .font(Typo.body(12))
-                .foregroundStyle(Palette.muted)
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-                .padding(.horizontal, 8)
+            .font(Typo.body(14))
+            .padding(.top, 4)
         }
         .padding(.horizontal, 24)
         .padding(.top, 24)
@@ -104,7 +123,27 @@ struct LoginView: View {
                 .ignoresSafeArea(edges: .bottom)
         )
         .foregroundStyle(Palette.ink)
-        .animation(.snappy, value: session.problem)
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(Typo.body(13, .medium))
+            .foregroundStyle(Palette.textSecondary)
+    }
+}
+
+private struct InputFieldStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(Typo.body(16))
+            .foregroundStyle(Palette.ink)
+            .padding(.horizontal, 14)
+            .frame(height: 50)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Palette.borderStrong, lineWidth: 1)
+            )
     }
 }
 
