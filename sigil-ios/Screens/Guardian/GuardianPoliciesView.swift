@@ -2,26 +2,65 @@ import SwiftUI
 
 struct GuardianPoliciesView: View {
     @Environment(AppSession.self) private var session
-    @State private var dependentID = MockData.dependents[0].id
+    @Environment(Store.self) private var store
+    @State private var interviewing = false
 
-    private var policy: Policy { MockData.policy(for: dependentID) }
-    private var body_: PolicyBody { policy.body }
+    private var dependentID: String { session.selectedFamilyID ?? "" }
+    private var policy: Policy? { store.policy(for: dependentID) }
 
     var body: some View {
         Screen(spacing: 22) {
             PageTitle(title: "Policies", subtitle: "The agent checks every request against these rules.")
 
-            FilterChips(
-                options: MockData.dependents.map { ($0.id, $0.name) },
-                selection: $dependentID
-            )
-            .onChange(of: dependentID) { _, id in
+            if store.dependents.count > 1 {
                 // Every guardian call about one dependent names that family in the
-                // X-Family-Id header, so the selection belongs to the session.
-                session.selectedFamilyID = MockData.dependent(id).familyID
+                // X-Family-Id header, so picking one here sets it for everything.
+                FilterChips(
+                    options: store.dependents.map { ($0.familyID, $0.name) },
+                    selection: Binding(
+                        get: { dependentID },
+                        set: { id in
+                            session.selectedFamilyID = id
+                            Task { await store.load() }
+                        }
+                    )
+                )
             }
 
-            summaryCard
+            if let policy {
+                content(policy)
+            } else {
+                noPolicy
+            }
+        }
+        .sheet(isPresented: $interviewing) {
+            PolicyInterviewView()
+        }
+        .task { await store.load() }
+    }
+
+    /// Nothing is in force until the guardian has signed one.
+    private var noPolicy: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("No policy yet")
+                .font(Typo.display(20))
+                .tracking(-0.3)
+            Text("Talk to the agent about what this dependent should be able to ask for. You'll see the limits it drafts, and nothing takes effect until you sign them.")
+                .font(Typo.body(15))
+                .foregroundStyle(Palette.textSecondary)
+                .lineSpacing(3)
+            Button("Set the policy") { interviewing = true }
+                .buttonStyle(PrimaryButtonStyle(height: 52))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle(radius: 24)
+    }
+
+    @ViewBuilder
+    private func content(_ policy: Policy) -> some View {
+        let body_ = policy.body
+
+        Group {
 
             LabeledSection(title: "Allowance") {
                 ListCard {
@@ -41,7 +80,7 @@ struct GuardianPoliciesView: View {
                     ValueRow(title: "Most per request", value: body_.maxPerRequest.compact, mono: true)
                     ValueRow(title: "Proof needed over", value: body_.proofThreshold.compact, mono: true)
                     ValueRow(title: "Auditor reviews over",
-                             value: reviewThresholdText, mono: true)
+                             value: reviewThresholdText(body_), mono: true)
                 }
                 Text("These are enforced by code. The agent can be talked into anything, but it cannot move past this line.")
                     .font(Typo.body(13))
@@ -82,7 +121,7 @@ struct GuardianPoliciesView: View {
                 .cardStyle(padding: 14)
             }
 
-            guidanceSection
+            guidanceSection(body_)
 
             LabeledSection(title: "Paid from (shared)") {
                 HStack(spacing: 12) {
@@ -104,7 +143,10 @@ struct GuardianPoliciesView: View {
                 .cardStyle(padding: 14)
             }
 
-            versionFooter
+            versionFooter(policy)
+
+            Button("Change the policy") { interviewing = true }
+                .buttonStyle(SecondaryButtonStyle(height: 50))
         }
     }
 
@@ -116,10 +158,9 @@ struct GuardianPoliciesView: View {
                     .font(Typo.mono(11, .regular))
                     .tracking(0.9)
                     .foregroundStyle(Palette.mutedOnDark)
-                Text(policy.summary)
+                Text("These are the limits you signed. The agent decides inside them; the engine refuses anything outside.")
                     .font(Typo.body(15))
                     .lineSpacing(3)
-                    .contentTransition(.opacity)
             }
         }
         .padding(.horizontal, 18)
@@ -131,7 +172,7 @@ struct GuardianPoliciesView: View {
 
     /// Guidance is intent, not a rule: the agent reads it, code never enforces it,
     /// and the dependent never sees it. The gateway stores it as one block of text.
-    private var guidanceSection: some View {
+    private func guidanceSection(_ body_: PolicyBody) -> some View {
         LabeledSection(title: "What you told the agent") {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "quote.opening")
@@ -147,7 +188,7 @@ struct GuardianPoliciesView: View {
             }
             .cardStyle(padding: 14)
 
-            Text("Guidance shapes what the agent decides. It is never a limit, and \(MockData.dependent(dependentID).name) can't see it.")
+            Text("Guidance shapes what the agent decides. It is never a limit, and \(store.dependent(familyID: dependentID)?.name ?? "they") can't see it.")
                 .font(Typo.body(13))
                 .foregroundStyle(Palette.muted)
                 .lineSpacing(2)
@@ -157,19 +198,19 @@ struct GuardianPoliciesView: View {
 
     /// The engine falls back to 25% of the weekly cap when the guardian set no
     /// threshold, so the screen says which of the two is in force.
-    private var reviewThresholdText: String {
+    private func reviewThresholdText(_ body_: PolicyBody) -> String {
         let value = body_.effectiveReviewThreshold.compact
         return body_.usesDefaultReviewThreshold ? "\(value) (default)" : value
     }
 
     private var reservoirText: String {
-        guard let remaining = MockData.reservoirRemaining else {
+        guard let remaining = store.budget?.delegatedRemaining else {
             return "The chain can't be read right now"
         }
         return "\(remaining.compact) left of what you delegated"
     }
 
-    private var versionFooter: some View {
+    private func versionFooter(_ policy: Policy) -> some View {
         VStack(spacing: 6) {
             Text("Version \(policy.version) · activated \(policy.activatedAt)")
                 .font(Typo.body(13))
@@ -208,5 +249,6 @@ struct GuardianPoliciesView: View {
 }
 
 #Preview {
-    GuardianPoliciesView().environment(AppSession())
+    let session = AppSession()
+    return GuardianPoliciesView().environment(session).environment(Store(session: session))
 }

@@ -7,7 +7,9 @@ import SwiftUI
 /// engine gets an exact integer to cap the transfer with instead of a number parsed
 /// out of prose.
 struct AskSheet: View {
-    let dependent: Dependent
+    let policy: PolicyBody
+    let budget: Budget
+    let guardianName: String
     /// Called with the finished ask; the caller owns what happens next.
     var onAsk: (Units, Category, String, Bool) -> Void
 
@@ -18,10 +20,6 @@ struct AskSheet: View {
     @State private var emergency = false
     @State private var showingAllCategories = false
     @FocusState private var amountFocused: Bool
-
-    private var policy: PolicyBody { MockData.policy(for: dependent.id).body }
-    private var budget: Budget { MockData.budget(for: dependent.id) }
-    private var guardianName: String { MockData.guardian.shortName }
 
     private var amount: Units {
         Units(Int64(digits) ?? 0)
@@ -287,6 +285,16 @@ struct AskSheet: View {
 
 #Preview {
     Color.white.sheet(isPresented: .constant(true)) {
-        AskSheet(dependent: MockData.dependents[0]) { _, _, _, _ in }
+        AskSheet(
+            policy: PolicyBody(
+                weeklyCap: Units(150), maxPerRequest: Units(60), blockedCategories: [.gaming],
+                proofThreshold: Units(50), reviewThreshold: nil, allowance: nil, guidance: ""
+            ),
+            budget: Budget(
+                spent: Units(95), reserved: .zero, weeklyCap: Units(150),
+                remaining: Units(55), delegatedRemaining: nil, resetText: "Resets Mon"
+            ),
+            guardianName: "your guardian"
+        ) { _, _, _, _ in }
     }
 }

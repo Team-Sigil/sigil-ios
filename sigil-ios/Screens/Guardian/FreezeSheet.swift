@@ -4,8 +4,9 @@ import SwiftUI
 /// freeze and signs once for each. "Freeze everyone" is not one switch.
 struct FreezeSheet: View {
     @Environment(AppSession.self) private var session
+    @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var signing: Dependent?
+    @State private var working: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -21,7 +22,7 @@ struct FreezeSheet: View {
             }
 
             ListCard {
-                ForEach(MockData.dependents) { dependent in
+                ForEach(store.dependents) { dependent in
                     row(dependent)
                 }
             }
@@ -37,31 +38,19 @@ struct FreezeSheet: View {
         .foregroundStyle(Palette.ink)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .sheet(item: $signing) { dependent in
-            SignatureSheet(
-                title: session.isFrozen(dependent.familyID)
-                    ? "Lift \(dependent.name)'s freeze"
-                    : "Freeze \(dependent.name)",
-                summary: session.isFrozen(dependent.familyID)
-                    ? "The agent can send to \(dependent.name) again, inside the limits you signed."
-                    : "Nothing reaches \(dependent.name) until you unfreeze. Your other dependents are unaffected.",
-                message: [
-                    "FinGuard:freeze",
-                    "family:\(dependent.familyID)",
-                    "frozen:\(session.isFrozen(dependent.familyID) ? "false" : "true")",
-                    "nonce:\(MockData.nonce)",
-                ],
-                confirmTitle: session.isFrozen(dependent.familyID) ? "Sign and unfreeze" : "Sign and freeze"
-            ) {
-                withAnimation(.snappy) {
-                    session.setFrozen(!session.isFrozen(dependent.familyID), familyID: dependent.familyID)
-                }
-            }
-        }
+    }
+
+    /// Freezing is signed, and the signature names the family, so the family has to be
+    /// the selected one when it is sent.
+    private func toggle(_ dependent: Dependent, frozen: Bool) async {
+        working = dependent.familyID
+        defer { working = nil }
+        session.selectedFamilyID = dependent.familyID
+        _ = await store.setFrozen(!frozen)
     }
 
     private func row(_ dependent: Dependent) -> some View {
-        let frozen = session.isFrozen(dependent.familyID)
+        let frozen = store.families.first { $0.id == dependent.familyID }?.frozen ?? false
 
         return HStack(spacing: 12) {
             Avatar(initials: dependent.initials, size: 36,
@@ -74,34 +63,24 @@ struct FreezeSheet: View {
                     .foregroundStyle(frozen ? Palette.orangeInk : Palette.muted)
             }
             Spacer()
-            Button(frozen ? "Unfreeze" : "Freeze") { signing = dependent }
+            if working == dependent.familyID {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(frozen ? "Unfreeze" : "Freeze") {
+                    Task { await toggle(dependent, frozen: frozen) }
+                }
                 .font(Typo.body(14, .semibold))
                 .foregroundStyle(frozen ? Palette.accent : Palette.danger)
                 .buttonStyle(.plain)
+            }
         }
         .frame(minHeight: 60)
     }
 }
 
-/// `sheet(item:)` needs an identifiable selection; Dependent already is one.
-private extension View {
-    func sheet<Item: Identifiable, Content: View>(
-        item: Binding<Item?>,
-        @ViewBuilder content: @escaping (Item) -> Content
-    ) -> some View {
-        sheet(isPresented: Binding(
-            get: { item.wrappedValue != nil },
-            set: { if !$0 { item.wrappedValue = nil } }
-        )) {
-            if let value = item.wrappedValue {
-                content(value)
-            }
-        }
-    }
-}
-
 #Preview {
-    Color.white.sheet(isPresented: .constant(true)) {
-        FreezeSheet().environment(AppSession())
+    let session = AppSession()
+    return Color.white.sheet(isPresented: .constant(true)) {
+        FreezeSheet().environment(session).environment(Store(session: session))
     }
 }

@@ -37,25 +37,8 @@ final class AppSession {
     /// The family every guardian request is about. Nil until one is chosen.
     var selectedFamilyID: String?
 
-    /// Freeze is per family (SEC-17): "freeze everyone" is one signature each.
-    private var frozenFamilies: Set<String> = []
-
     var needsOnboarding: Bool { role == .guardian && familyIDs.isEmpty }
     var hasSeveralDependents: Bool { familyIDs.count > 1 }
-
-    func isFrozen(_ familyID: String) -> Bool {
-        frozenFamilies.contains(familyID)
-    }
-
-    func setFrozen(_ frozen: Bool, familyID: String) {
-        if frozen {
-            frozenFamilies.insert(familyID)
-        } else {
-            frozenFamilies.remove(familyID)
-        }
-    }
-
-    var frozenCount: Int { frozenFamilies.count }
 
     /// Sign-In With Solana: ask the gateway for its text, sign it, exchange it for a
     /// session. The role is the gateway's to decide — a wallet it knows as a dependent is
@@ -141,7 +124,6 @@ final class AppSession {
             role = nil
             familyIDs = []
             selectedFamilyID = nil
-            frozenFamilies = []
         }
     }
 
@@ -149,8 +131,8 @@ final class AppSession {
     func signInOffline(as role: Role) {
         withAnimation(.easeInOut(duration: 0.3)) {
             self.role = role
-            familyIDs = MockData.dependents.map(\.familyID)
-            selectedFamilyID = familyIDs.first
+            familyIDs = ["offline"]
+            selectedFamilyID = "offline"
         }
     }
 }
