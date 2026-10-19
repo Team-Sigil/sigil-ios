@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GuardianSettingsView: View {
     @Environment(AppSession.self) private var session
+    @Environment(Store.self) private var store
     @State private var notifyEvery = false
     @State private var notifyHeld = true
     @State private var faceIDLogin = true
@@ -13,11 +14,15 @@ struct GuardianSettingsView: View {
 
             Button {} label: {
                 HStack(spacing: 14) {
-                    Avatar(initials: MockData.guardian.initials, size: 56, background: Palette.ink,
+                    Avatar(initials: "·", size: 56, background: Palette.ink,
                            foreground: Palette.paper, fontSize: 18, weight: .semibold)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(MockData.guardian.name).font(Typo.display(19))
-                        Text("\(MockData.guardian.wallet) · Guardian").font(Typo.mono(13, .regular)).foregroundStyle(Palette.muted)
+                        Text("Guardian").font(Typo.display(19))
+                        Text(session.wallet ?? "")
+                            .font(Typo.mono(13, .regular))
+                            .foregroundStyle(Palette.muted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                     Spacer()
                     Chevron()
@@ -40,10 +45,16 @@ struct GuardianSettingsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    ValueRow(title: MockData.guardian.wallet, value: "Devnet", mono: true)
-                    ValueRow(title: "Token account", value: MockData.guardianTokenAccount, mono: true)
-                    ValueRow(title: "Delegated, still unspent",
-                             value: MockData.reservoirRemaining?.compact ?? "Can't read the chain", mono: true)
+                    ValueRow(title: "Network", value: "Devnet")
+                    ValueRow(
+                        title: "Token account",
+                        value: store.selectedFamily?.guardianTokenAccount ?? "—", mono: true
+                    )
+                    ValueRow(
+                        title: "Delegated, still unspent",
+                        value: store.budget?.delegatedRemaining?.compact ?? "Can't read the chain",
+                        mono: true
+                    )
                     Button {} label: {
                         HStack(spacing: 10) {
                             Image(systemName: "plus").font(.system(size: 15, weight: .bold))
@@ -56,7 +67,7 @@ struct GuardianSettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Text("One reservoir covers all \(MockData.dependents.count) dependents. The money stays in your wallet, and the agent only holds a spending permission you can revoke at any time.")
+                Text("One reservoir covers every dependent. The money stays in your wallet, and the agent only holds a spending permission you can revoke at any time.")
                     .font(Typo.body(13))
                     .foregroundStyle(Palette.muted)
                     .lineSpacing(2)
@@ -69,7 +80,7 @@ struct GuardianSettingsView: View {
                         HStack(spacing: 10) {
                             Text("Freeze transfers").font(Typo.body(15))
                             Spacer()
-                            Text(session.frozenCount > 0 ? "\(session.frozenCount) frozen" : "None frozen")
+                            Text(frozenCount > 0 ? "\(frozenCount) frozen" : "None frozen")
                                 .font(Typo.body(14))
                                 .foregroundStyle(Palette.textSecondary)
                             Chevron()
@@ -116,6 +127,10 @@ struct GuardianSettingsView: View {
     }
 }
 
+private extension GuardianSettingsView {
+    var frozenCount: Int { store.families.filter(\.frozen).count }
+}
+
 struct SignOutButton: View {
     var action: () -> Void
 
@@ -133,5 +148,6 @@ struct SignOutButton: View {
 }
 
 #Preview {
-    GuardianSettingsView().environment(AppSession())
+    let session = AppSession()
+    return GuardianSettingsView().environment(session).environment(Store(session: session))
 }

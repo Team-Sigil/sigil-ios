@@ -101,7 +101,7 @@ struct ProofFlagChip: View {
 struct ActivityRow: View {
     let item: ActivityItem
     /// Shown on the guardian's screens, where several dependents are mixed together.
-    var showsDependent = true
+    var dependentName: String?
     /// Guardians read the agent's summary for them; dependents read their own reply.
     var showsGuardianSummary = false
     var guardianName: String?
@@ -145,7 +145,7 @@ struct ActivityRow: View {
     }
 
     private var title: String {
-        showsDependent ? "\(item.title) · \(MockData.name(of: item.dependentID))" : item.title
+        dependentName.map { "\(item.title) · \($0)" } ?? item.title
     }
 
     private var text: String {
@@ -168,7 +168,11 @@ struct ActivityRow: View {
                 ForEach(Outcome.allCases, id: \.self) { StatusBadge(outcome: $0) }
             }
             ListCard {
-                ForEach(MockData.activity[0].items) { ActivityRow(item: $0) }
+                ActivityRow(item: ActivityItem(
+                    outcome: .sentFull, title: "Lab supplies", dependentID: "",
+                    amount: Units(25), amountSent: Units(25), category: .education,
+                    reply: "Sent — well inside your limits.", time: "12 min"
+                ))
             }
         }
         .padding()

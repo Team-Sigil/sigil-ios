@@ -107,6 +107,24 @@ struct OnboardingView: View {
             .disabled(!canRegister)
             .opacity(canRegister ? 1 : 0.5)
         }
+        .task { await registerDemoDependentIfAsked() }
+    }
+
+    /// `-demoDependent` registers a throwaway dependent so the guardian screens can be
+    /// checked on the simulator, which cannot be tapped from a terminal. Nobody holds the
+    /// key, so that dependent can never sign in.
+    private func registerDemoDependentIfAsked() async {
+        guard ProcessInfo.processInfo.arguments.contains("-demoDependent"),
+              store.families.isEmpty else { return }
+        let dependentKey = LocalWallet.throwawayAddress()
+        let dependentAccount = LocalWallet.throwawayAddress()
+        let reservoir = LocalWallet.throwawayAddress()
+        _ = await store.registerDependent(
+            wallet: dependentKey,
+            tokenAccount: dependentAccount,
+            guardianTokenAccount: reservoir,
+            name: "Min Thu"
+        )
     }
 
     private func field(

@@ -96,6 +96,12 @@ final class LocalWallet: WalletService {
         return Base58.encode([UInt8](signature))
     }
 
+    /// A fresh address nobody keeps the key for. Only used by the simulator hook that
+    /// registers a throwaway dependent.
+    static func throwawayAddress() -> String {
+        Base58.encode([UInt8](Curve25519.Signing.PrivateKey().publicKey.rawRepresentation))
+    }
+
     /// Forgets the key, so the next sign-in is a different person. Used by sign-out while
     /// this stands in for a wallet; a real wallet would simply disconnect.
     func forget() {

@@ -20,9 +20,33 @@ final class Store {
     var notifications: [Notification] = []
     var transfers: [TransferDTO] = []
 
+    /// One budget per family, so the guardian's list can show each dependent's week.
+    var budgets: [String: Budget] = [:]
+    var policies: [String: Policy] = [:]
+
     var loading = false
     /// The last failure, in the gateway's own words.
     var problem: String?
+
+    /// The guardian's dependents, as the screens show them.
+    var dependents: [Dependent] {
+        families.enumerated().map { index, family in Dependent(family, index: index) }
+    }
+
+    func dependent(familyID: String) -> Dependent? {
+        dependents.first { $0.familyID == familyID }
+    }
+
+    var selectedDependent: Dependent? {
+        dependents.first { $0.familyID == session.selectedFamilyID } ?? dependents.first
+    }
+
+    func budget(for familyID: String) -> Budget? { budgets[familyID] }
+    func policy(for familyID: String) -> Policy? { policies[familyID] }
+
+    /// What a dependent calls their guardian. The gateway doesn't tell a dependent their
+    /// guardian's name, so the copy stays neutral rather than inventing one.
+    var guardianName: String { "your guardian" }
 
     init(session: AppSession) {
         self.session = session
@@ -72,6 +96,26 @@ final class Store {
 
         if session.role == .guardian {
             questions = await ((try? scoped.questions()) ?? []).map(GuardianQuestion.init)
+            await loadPerFamily()
+        } else if let family = session.selectedFamilyID {
+            if let budget { budgets[family] = budget }
+            if let policy { policies[family] = policy }
+        }
+    }
+
+    /// The guardian's lists show every dependent at once, and both of these are scoped to
+    /// one family by the header, so each needs its own call.
+    @MainActor
+    private func loadPerFamily() async {
+        for family in families {
+            var api = session.api
+            api.familyID = family.id
+            if let dto = try? await api.budget() {
+                budgets[family.id] = Budget(dto)
+            }
+            if let dto = try? await api.activePolicy() {
+                policies[family.id] = Policy(dto, dependentID: family.id)
+            }
         }
     }
 
@@ -316,5 +360,38 @@ extension Notification {
             time: Policy.shortDate(dto.createdAt),
             isRead: dto.readAt != nil
         )
+    }
+}
+
+
+extension Dependent {
+    /// A family as the screens show its dependent. Colours are assigned by position so the
+    /// same person keeps the same one between launches.
+    init(_ family: FamilyDTO, index: Int) {
+        let palette: [(Color, Color)] = [
+            (Palette.blueSoft, Palette.blueInk),
+            (Palette.orangeSoft, Palette.orangeInk),
+            (Palette.graySoft, Palette.ink),
+        ]
+        let colours = palette[index % palette.count]
+        let name = family.dependentName ?? String(family.dependentWallet.prefix(4))
+        self.init(
+            id: family.id,
+            familyID: family.id,
+            name: name,
+            initials: Self.initials(of: name),
+            tokenAccount: family.dependentTokenAccount,
+            avatarBackground: colours.0,
+            avatarForeground: colours.1,
+            sentThisMonth: .zero,
+            requestsThisMonth: 0,
+            awaitingGuardian: 0
+        )
+    }
+
+    static func initials(of name: String) -> String {
+        let parts = name.split(separator: " ").prefix(2)
+        let letters = parts.compactMap { $0.first }.map(String.init).joined()
+        return letters.isEmpty ? "?" : letters.uppercased()
     }
 }

@@ -2,9 +2,10 @@ import SwiftUI
 
 struct DependentProfileView: View {
     @Environment(AppSession.self) private var session
+    @Environment(Store.self) private var store
 
-    private let me = MockData.dependents[0]
-    private var guardianName: String { MockData.guardian.shortName }
+    private var guardianName: String { store.guardianName }
+    private var name: String { store.selectedFamily?.dependentName ?? "You" }
     @State private var notifyArrives = true
     @State private var notifyAnswers = true
     @State private var notifyResets = false
@@ -24,7 +25,10 @@ struct DependentProfileView: View {
                             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.border, lineWidth: 1))
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(me.tokenAccount).font(Typo.mono(15, .semibold))
+                            Text(store.selectedFamily?.dependentTokenAccount ?? "—")
+                                .font(Typo.mono(15, .semibold))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                             HStack(spacing: 6) {
                                 StatusDot(size: 7)
                                 Text("Registered by \(guardianName) · devnet")
@@ -34,7 +38,7 @@ struct DependentProfileView: View {
                         }
                         Spacer()
                     }
-                    Text("This is the only address your allowance can go to. Only \(guardianName) can change it, with her wallet.")
+                    Text("This is the only address your allowance can go to. Only \(guardianName) can change it, with their wallet.")
                         .font(Typo.body(12))
                         .foregroundStyle(Palette.muted)
                         .lineSpacing(2)
@@ -46,10 +50,10 @@ struct DependentProfileView: View {
             LabeledSection(title: "Guardian") {
                 Button {} label: {
                     HStack(spacing: 12) {
-                        Avatar(initials: MockData.guardian.initials, background: Palette.ink, foreground: Palette.paper,
+                        Avatar(initials: "·", background: Palette.ink, foreground: Palette.paper,
                                fontSize: 14, weight: .semibold)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("\(guardianName) (\(MockData.guardian.name))").font(Typo.body(15, .semibold))
+                            Text(guardianName.capitalizedFirstLetter).font(Typo.body(15, .semibold))
                             Text("Funds your allowance · sets your policy")
                                 .font(Typo.body(12))
                                 .foregroundStyle(Palette.muted)
@@ -87,16 +91,17 @@ struct DependentProfileView: View {
 
     private var header: some View {
         VStack(spacing: 10) {
-            Avatar(initials: me.initials, size: 76, background: me.avatarBackground,
-                   foreground: me.avatarForeground, fontSize: 24)
+            Avatar(initials: Dependent.initials(of: name), size: 76, fontSize: 24)
             VStack(spacing: 4) {
-                Text(me.name)
+                Text(name)
                     .font(Typo.display(28))
                     .tracking(-0.6)
                     .accessibilityAddTraits(.isHeader)
-                Text(me.tokenAccount)
+                Text(session.wallet ?? "")
                     .font(Typo.mono(14, .regular))
                     .foregroundStyle(Palette.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Button {} label: {
                 Text("Edit profile")
@@ -116,5 +121,6 @@ struct DependentProfileView: View {
 }
 
 #Preview {
-    DependentProfileView().environment(AppSession())
+    let session = AppSession()
+    return DependentProfileView().environment(session).environment(Store(session: session))
 }
