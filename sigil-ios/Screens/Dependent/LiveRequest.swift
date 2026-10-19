@@ -39,6 +39,9 @@ final class LiveRequest: Identifiable {
     private var budget: Budget { MockData.budget(for: dependentID) }
     private var guardianName: String { MockData.guardian.shortName }
 
+    /// True once the money is out and the receipt has not been sent yet.
+    var owesReceipt = false
+
     /// Mirrors the documented decision order closely enough to exercise every
     /// affordance from the simulator. The real answer comes from the agent.
     func settle() {
@@ -56,8 +59,12 @@ final class LiveRequest: Identifiable {
             amountSent = budget.remaining
             reply = "You have \(budget.remaining.compact) left this week. I can send that now, or the full \(amount.compact) once your budget resets on Monday."
         } else if amount >= policy.proofThreshold {
-            outcome = .askedProof
-            reply = "Anything over \(policy.proofThreshold.compact) needs proof of the price. Show me a price tag or a quote if you haven't bought it yet, or a receipt if you've already paid."
+            // Over the threshold the money goes out first — you can't buy anything
+            // before you're paid — and the receipt is owed afterwards.
+            outcome = .sentFull
+            amountSent = amount
+            owesReceipt = true
+            reply = "Sent — \(amount.compact) for \(category.label.lowercased()). Anything over \(policy.proofThreshold.compact) needs a receipt afterwards, so send me one once you've paid. I can't send anything more until you do."
         } else {
             outcome = .sentFull
             amountSent = amount
@@ -76,13 +83,12 @@ final class LiveRequest: Identifiable {
         reply = "I've asked \(guardianName), with what you told me and my own view. You'll get a notification when she answers."
     }
 
-    /// The gateway takes `kind` with the upload (`receipt | quote | photo`), so the
-    /// dependent says which they are showing before the camera opens.
-    func attachProof(kind: ProofKind) {
-        outcome = .sentFull
-        amountSent = amount
-        let what = kind == .receipt ? "receipt" : "price"
-        reply = "That \(what) covers \(amount.compact), so I've sent it."
+    /// Settles the owed receipt. The real block lifts only once the gateway accepts the
+    /// proof, so nothing here is decided by the app.
+    func attachReceipt(from source: ProofSource) {
+        owesReceipt = false
+        let what = source == .camera ? "receipt" : "order confirmation"
+        reply = "Thanks — that \(what) covers \(amount.compact). You're all clear to ask for money again."
     }
 }
 
@@ -90,8 +96,6 @@ final class LiveRequest: Identifiable {
 struct LiveRequestCard: View {
     @Bindable var request: LiveRequest
     var onDone: () -> Void
-
-    @State private var choosingProofKind = false
 
     private var guardianName: String { MockData.guardian.shortName }
 
@@ -135,6 +139,45 @@ struct LiveRequestCard: View {
         .cardStyle(radius: 24)
     }
 
+    /// Two ways to send a receipt: the app's camera for a paper one, or the PDF for an
+    /// online order. No gallery picker, and screenshots are not accepted.
+    private var receiptActions: some View {
+        VStack(spacing: 10) {
+            ForEach(ProofSource.allCases) { source in
+                Button {
+                    withAnimation(.snappy) { request.attachReceipt(from: source) }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: source.icon)
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(source.title).font(Typo.body(15, .semibold))
+                            Text(source.detail)
+                                .font(Typo.body(12))
+                                .foregroundStyle(source == .camera ? .white.opacity(0.75) : Palette.muted)
+                        }
+                        Spacer()
+                    }
+                    .foregroundStyle(source == .camera ? .white : Palette.ink)
+                    .padding(.horizontal, 14)
+                    .frame(height: 56)
+                    .background(
+                        source == .camera ? Palette.accent : Palette.card,
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    )
+                    .overlay {
+                        if source == .document {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Palette.borderStrong, lineWidth: 1)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var waitingBadge: some View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.mini).tint(Palette.blueInk)
@@ -162,27 +205,7 @@ struct LiveRequestCard: View {
             }
 
         case .askedProof:
-            Button {
-                choosingProofKind = true
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "camera.fill").font(.system(size: 14, weight: .semibold))
-                    Text("Show the price")
-                }
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .confirmationDialog("What are you showing me?",
-                                isPresented: $choosingProofKind, titleVisibility: .visible) {
-                Button("Price tag or quote") {
-                    withAnimation(.snappy) { request.attachProof(kind: .quote) }
-                }
-                Button("Receipt — I already paid") {
-                    withAnimation(.snappy) { request.attachProof(kind: .receipt) }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Receipts have to be taken with the app's camera, so they can't be reused.")
-            }
+            receiptActions
 
         case .blocked, .declined:
             HStack(spacing: 10) {
@@ -195,8 +218,12 @@ struct LiveRequestCard: View {
             }
 
         case .sentFull, .sentPartial:
-            Button("Done", action: onDone)
-                .buttonStyle(SecondaryButtonStyle())
+            if request.owesReceipt {
+                receiptActions
+            } else {
+                Button("Done", action: onDone)
+                    .buttonStyle(SecondaryButtonStyle())
+            }
 
         default:
             // asked_guardian and anything new from the gateway: nothing to tap,
